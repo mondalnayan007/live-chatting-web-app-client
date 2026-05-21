@@ -112,7 +112,8 @@ export default function App() {
       return;
     }
 
-    socketRef.current = io('http://localhost:5000');
+    // Live Backend URL replaced here
+    socketRef.current = io('https://live-chatting-web-app-server.onrender.com');
     const socket = socketRef.current;
 
     socket.on('connect', () => {
@@ -225,7 +226,8 @@ export default function App() {
     const cleanedName = formData.name.trim();
 
     try {
-      const response = await fetch('http://localhost:5000/api/login', {
+      // Live Backend URL replaced here
+      const response = await fetch('https://live-chatting-web-app-server.onrender.com/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: cleanedName })
@@ -247,7 +249,7 @@ export default function App() {
       toast.success(`Welcome, ${cleanedName}!`);
 
     } catch (error) {
-      alert("Backend server is offline! Start server.js first.");
+      alert("Backend server is offline! Check your deployment link status.");
     }
   };
 
@@ -304,7 +306,6 @@ export default function App() {
     setEditingMsgId(null);
   };
 
-  // ডাইনামিক পজিশন ক্যালকুলেট করার জন্য ক্লিক হ্যান্ডলার
   const toggleActionMenu = (e, msgId) => {
     if (activeMenuMsgId === msgId) {
       setActiveMenuMsgId(null);
@@ -315,9 +316,9 @@ export default function App() {
     const windowHeight = window.innerHeight;
     
     if (windowHeight - clickY < 160) {
-      setDropdownPosition('top'); // নিচে জায়গা না থাকলে উপরে দেখাবে
+      setDropdownPosition('top'); 
     } else {
-      setDropdownPosition('bottom'); // পর্যাপ্ত জায়গা থাকলে নিচে দেখাবে
+      setDropdownPosition('bottom'); 
     }
     
     setActiveMenuMsgId(msgId);
@@ -490,7 +491,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* --- মেসেজ ডিসপ্লে এরিয়া (ডাইনামিক ড্রপডাউন পজিশন সহ) --- */}
+                {/* --- মেসেজ ডিসপ্লে এরিয়া --- */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 relative">
                   {(chatHistory[selectedUser.name] || []).map((msg, idx) => {
                     const isMyMsg = msg.type === 'outgoing';
@@ -501,7 +502,6 @@ export default function App() {
                     return (
                       <div key={currentMsgId} className={`flex w-full items-center gap-2 msg-action-container ${isMyMsg ? 'justify-end' : 'justify-start'}`}>
                         
-                        {/* ইনকামিং মেসেজের থ্রি-ডট বোতাম */}
                         {!isMyMsg && !msg.isUnsent && (
                           <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300 rounded-lg opacity-0 group-hover:opacity-100 md:opacity-100 transition">
                             <MoreVertical size={14} />
@@ -521,7 +521,6 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* --- ডাইনামিক ড্রপডাউন প্যানেল (জায়গা অনুযায়ী উপরে/নিচে পজিশন হবে) --- */}
                           <AnimatePresence>
                             {isMenuOpen && !isEditingThis && (
                               <motion.div 
@@ -542,7 +541,6 @@ export default function App() {
                           </AnimatePresence>
                         </div>
 
-                        {/* আউটগোয়িং মেসেজের থ্রি-ডট বোতাম */}
                         {isMyMsg && !msg.isUnsent && (
                           <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300 rounded-lg opacity-0 group-hover:opacity-100 md:opacity-100 transition">
                             <MoreVertical size={14} />
