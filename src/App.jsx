@@ -13,6 +13,7 @@ export default function App() {
   const menuRef = useRef(null);
   const fileInputRef = useRef(null); 
   const settingsMenuRef = useRef(null);
+  const messagesEndRef = useRef(null);
 
   const [user, setUser] = useState(() => {
     const savedUser = sessionStorage.getItem('chat_user');
@@ -45,6 +46,10 @@ export default function App() {
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showTermsPopup, setShowTermsPopup] = useState(false);
 
+  // টাইপিং স্টেটসমূহ
+  const [isTyping, setIsTyping] = useState(false);
+  const [typingUsers, setTypingUsers] = useState({});
+
   // মেসেজ অ্যাকশন স্টেটসমূহ
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
   const [dropdownPosition, setDropdownPosition] = useState('bottom'); 
@@ -58,7 +63,6 @@ export default function App() {
     } catch (e) { return {}; }
   });
   
-  // আনরিড মেসেজ কাউন্টার স্টেট
   const [unreadCounts, setUnreadCounts] = useState(() => {
     try {
       const savedCounts = localStorage.getItem('global_unread_counts');
@@ -67,7 +71,6 @@ export default function App() {
   }); 
   const selectedUserRef = useRef(null);
 
-  // আনরিড কাউন্ট লোকালস্টোরেজে সিঙ্ক রাখা
   useEffect(() => {
     localStorage.setItem('global_unread_counts', JSON.stringify(unreadCounts));
   }, [unreadCounts]);
@@ -81,9 +84,21 @@ export default function App() {
     setShowBlockMenu(false);
     setActiveMenuMsgId(null); 
     setEditingMsgId(null);     
+    scrollToBottom();
   }, [selectedUser]);
 
-  // গ্লোবাল ক্লিক এবং ড্রপডাউন ক্লোজ হ্যান্ডলার
+  // নতুন মেসেজ আসলে অটো স্ক্রোল ডাউন
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    if (selectedUser && chatHistory[selectedUser.name]) {
+      scrollToBottom();
+    }
+  }, [chatHistory, selectedUser]);
+
+  // গ্লোবাল ক্লিক হ্যান্ডলার
   useEffect(() => {
     function handleClickOutside(event) {
       if (popupRef.current && !popupRef.current.contains(event.target)) setShowPicker(false);
@@ -97,7 +112,27 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Tenor API
+  // টাইপিং লজিক হ্যান্ডলার ও ইমিটেশন
+  const handleInputChange = (e) => {
+    setMessage(e.target.value);
+    if (!selectedUser || !socketRef.current) return;
+
+    if (!isTyping) {
+      setIsTyping(true);
+      socketRef.current.emit('typing_status', { toSocketId: selectedUser.id, isTyping: true, senderName: user.name });
+    }
+
+    const lastTypingTime = Date.now();
+    setTimeout(() => {
+      const timeDiff = Date.now() - lastTypingTime;
+      if (timeDiff >= 2000 && isTyping) {
+        setIsTyping(false);
+        socketRef.current.emit('typing_status', { toSocketId: selectedUserRef.current?.id, isTyping: false, senderName: user.name });
+      }
+    }, 2000);
+  };
+
+  // Tenor GIF API Engine
   useEffect(() => {
     if (!showPicker || activeTab !== 'gif') return;
     const fetchGifs = async () => {
@@ -114,7 +149,7 @@ export default function App() {
     return () => clearTimeout(delayDebounce);
   }, [gifSearch, showPicker, activeTab]);
 
-  // Socket Core Engine
+  // Socket.io Core Implementation
   useEffect(() => {
     if (!user) {
       setIsHydrating(false);
@@ -142,7 +177,12 @@ export default function App() {
       setAllBlocks(blocksData || {});
     });
 
-    socket.on('receive_private_message', ({ fromSocketId, senderName, message, msgId, fileType }) => {
+    // টাইপিং সিগন্যাল রিসিভার
+    socket.on('receive_typing_status', ({ senderName, isTyping }) => {
+      setTypingUsers(prev => ({ ...prev, [senderName]: isTyping }));
+    });
+
+    socket.on('receive_private_message', ({ fromSocketId, senderName, message, msgId, fileType, timestamp }) => {
       if (senderName === user.name) return;
 
       setAllBlocks(currentBlocks => {
@@ -154,7 +194,7 @@ export default function App() {
 
           const updated = { 
             ...prev, 
-            [senderName]: [...userHistory, { id: msgId, sender: senderName, text: message, type: 'incoming', fileType: fileType || 'text' }] 
+            [senderName]: [...userHistory, { id: msgId, sender: senderName, text: message, type: 'incoming', fileType: fileType || 'text', time: timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }] 
           };
           localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
           return updated;
@@ -267,11 +307,25 @@ export default function App() {
   };
 
   const executeSendMessage = (textToSend, fileType = 'text') => {
+    const currentTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const uniqueMsgId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    socketRef.current.emit('send_private_message', { toSocketId: selectedUser.id, message: textToSend, msgId: uniqueMsgId, fileType });
+    
+    socketRef.current.emit('send_private_message', { 
+      toSocketId: selectedUser.id, 
+      message: textToSend, 
+      msgId: uniqueMsgId, 
+      fileType,
+      timestamp: currentTimeStr
+    });
+
+    // টাইপিং বন্ধ করা
+    if (isTyping) {
+      setIsTyping(false);
+      socketRef.current.emit('typing_status', { toSocketId: selectedUser.id, isTyping: false, senderName: user.name });
+    }
 
     setChatHistory(prev => {
-      const updated = { ...prev, [selectedUser.name]: [...(prev[selectedUser.name] || []), { id: uniqueMsgId, sender: 'You', text: textToSend, type: 'outgoing', fileType }] };
+      const updated = { ...prev, [selectedUser.name]: [...(prev[selectedUser.name] || []), { id: uniqueMsgId, sender: 'You', text: textToSend, type: 'outgoing', fileType, time: currentTimeStr }] };
       localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
       return updated;
     });
@@ -355,7 +409,6 @@ export default function App() {
   if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white"><Loader2 className="animate-spin" /></div>;
 
   return (
-    // h-screen ও overscroll-none নিশ্চিত করে মোবাইল কিবোর্ড ওপেন হলেও স্ক্রিন যেন বাইরে না যায়
     <div className="h-screen w-screen bg-slate-950 text-white flex relative overflow-hidden fixed inset-0 overscroll-none select-none">
       <Toaster position="top-center" containerStyle={{ zIndex: 99999 }} reverseOrder={false} />
 
@@ -440,17 +493,23 @@ export default function App() {
             <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
               {activeUsers.filter(u => (genderFilter === 'All' || u.gender === genderFilter) && (countryFilter === 'All' || u.country === countryFilter)).map(u => {
                 const count = unreadCounts[u.name] || 0;
+                const userIsTyping = typingUsers[u.name] || false;
+                
                 return (
                   <div key={u.id} onClick={() => setSelectedUser(u)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition ${selectedUser?.name === u.name ? 'bg-blue-600/20 border border-blue-500' : 'bg-slate-800/50 hover:bg-slate-800'}`}>
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div onClick={(e) => { e.stopPropagation(); setProfileUser(u); }} className="shrink-0">{renderAvatar(u, "w-10 h-10")}</div>
                       <div className="min-w-0 flex-1">
                         <h3 className="text-sm font-medium truncate">{u.name}</h3>
-                        <p className="text-[10px] text-slate-500 truncate">{u.country} • {u.gender}</p>
+                        {userIsTyping ? (
+                          <p className="text-[11px] text-green-400 font-medium animate-pulse">typing...</p>
+                        ) : (
+                          <p className="text-[10px] text-slate-500 truncate">{u.country} • {u.gender}</p>
+                        )}
                       </div>
                     </div>
 
-                    {/* লাল ডট মেসেজ ইন্ডিকেটর ডিজাইন (ফিরিয়ে আনা হয়েছে) */}
+                    {/* লাল ডট মেসেজ ইন্ডিকেটর */}
                     {count > 0 && (
                       <div className="ml-2 shrink-0 bg-red-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shadow-lg animate-pulse">
                         {count}
@@ -461,15 +520,13 @@ export default function App() {
               })}
             </div>
 
-            {/* ==================== LEFT BOTTOM SETTINGS PANEL AREA START ==================== */}
+            {/* Settings Panel Area */}
             <div className="p-3 border-t border-slate-800 bg-slate-950/40 relative shrink-0" ref={settingsMenuRef}>
               <div className="flex items-center justify-between gap-2">
                 <button onClick={() => setShowSettingsMenu(!showSettingsMenu)} className="flex-1 flex items-center gap-3 p-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition text-sm font-medium">
                   <Settings size={18} className={`text-slate-400 transition-transform duration-300 ${showSettingsMenu ? 'rotate-45 text-blue-400' : ''}`} />
                   <span>Settings Panel</span>
                 </button>
-                
-                {/* Copyright Segment */}
                 <div className="text-[10px] text-slate-500 font-medium whitespace-nowrap pr-1 select-none">
                   Made with ❤️ by <span className="text-slate-400 font-semibold hover:text-blue-400 transition-colors">NAYAN</span>
                 </div>
@@ -489,29 +546,33 @@ export default function App() {
                 )}
               </AnimatePresence>
             </div>
-            {/* ==================== LEFT BOTTOM SETTINGS PANEL AREA END ==================== */}
           </div>
 
           {/* Right Message Panel */}
-          {/* h-[100dvh] মোবাইল ব্রাউজারের অ্যাড্রেস বার ও কীবোর্ড লেআউটকে অটো রিসাইজ করে ভিউপোর্টের ভিতরে রাখে */}
-          <div className={`w-full md:w-2/3 flex flex-col bg-slate-950 h-[100dvh] md:h-full overflow-hidden ${selectedUser ? 'flex' : 'hidden md:flex'}`}>
+          {/* flex-col, h-screen এবং overflow-hidden দিয়ে কিবোর্ড ও হেডার ফিক্সড রাখা হয়েছে */}
+          <div className={`w-full md:w-2/3 flex flex-col bg-slate-950 h-screen md:h-full overflow-hidden ${selectedUser ? 'flex' : 'hidden md:flex'}`}>
             {selectedUser ? (
               <>
-                <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/40 shrink-0">
+                {/* Fixed Top Header (মোবাইল কিবোর্ড ওপেন হলেও এটি উপরে সঠিক স্থানে আটকে থাকবে) */}
+                <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/40 shrink-0 z-10 sticky top-0">
                   <div className="flex items-center gap-3">
-                    <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-900 border border-slate-800 rounded-xl md:hidden"><ArrowLeft size={18} /></button>
+                    <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-900 border border-slate-800 rounded-xl md:hidden text-slate-300 active:bg-slate-800"><ArrowLeft size={18} /></button>
                     <div className="flex items-center gap-3 cursor-pointer" onClick={() => setProfileUser(selectedUser)}>
                       {renderAvatar(selectedUser, "w-10 h-10")}
                       <div>
-                        <h2 className="font-bold leading-none">{selectedUser.name}</h2>
-                        <p className="text-[10px] text-green-500 font-medium uppercase mt-1">Active Now</p>
+                        <h2 className="font-bold leading-none text-white">{selectedUser.name}</h2>
+                        {typingUsers[selectedUser.name] ? (
+                          <p className="text-[10px] text-green-400 font-semibold uppercase mt-1 animate-pulse">Typing...</p>
+                        ) : (
+                          <p className="text-[10px] text-green-500 font-medium uppercase mt-1">Active Now</p>
+                        )}
                       </div>
                     </div>
                   </div>
                 </div>
 
                 {/* --- মেসেজ ডিসপ্লে এরিয়া --- */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0">
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0 bg-slate-950/20">
                   {(chatHistory[selectedUser.name] || []).map((msg, idx) => {
                     const isMyMsg = msg.type === 'outgoing';
                     const currentMsgId = msg.id || `fallback-${idx}`;
@@ -519,15 +580,15 @@ export default function App() {
                     const isMenuOpen = activeMenuMsgId === currentMsgId;
 
                     return (
-                      <div key={currentMsgId} className={`flex w-full items-center gap-2 msg-action-container ${isMyMsg ? 'justify-end' : 'justify-start'}`}>
+                      <div key={currentMsgId} className={`flex w-full items-end gap-1.5 msg-action-container ${isMyMsg ? 'justify-end' : 'justify-start'}`}>
                         
                         {!isMyMsg && !msg.isUnsent && (
-                          <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300 rounded-lg opacity-0 group-hover:opacity-100 md:opacity-100 transition">
+                          <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300 rounded-lg opacity-0 group-hover:opacity-100 md:opacity-100 transition order-1">
                             <MoreVertical size={14} />
                           </button>
                         )}
 
-                        <div className="relative max-w-[75%] sm:max-w-[70%] group">
+                        <div className={`relative max-w-[75%] sm:max-w-[70%] group flex flex-col ${isMyMsg ? 'items-end' : 'items-start'}`}>
                           {isEditingThis ? (
                             <div className="bg-slate-800 border border-slate-700 p-2 rounded-2xl flex items-center gap-2 min-w-[220px] sm:min-w-[240px]">
                               <input type="text" value={editText} onChange={(e) => setEditText(e.target.value)} className="bg-slate-900 text-xs p-2 rounded-xl text-white outline-none flex-1 border border-slate-700" />
@@ -535,8 +596,20 @@ export default function App() {
                               <button onClick={() => setEditingMsgId(null)} className="p-1.5 bg-slate-700 text-slate-300 rounded-lg"><X size={14} /></button>
                             </div>
                           ) : (
-                            <div onClick={(e) => !msg.isUnsent && toggleActionMenu(e, currentMsgId)} className={`p-3 rounded-2xl text-sm cursor-pointer transition ${isMyMsg ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-100 rounded-tl-none'} hover:brightness-110 shadow-md`}>
-                              {renderMessageContent(msg)}
+                            <div className="flex flex-col">
+                              <div onClick={(e) => !msg.isUnsent && toggleActionMenu(e, currentMsgId)} className={`p-3 rounded-2xl text-sm cursor-pointer transition ${isMyMsg ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-100 rounded-tl-none'} hover:brightness-110 shadow-md`}>
+                                {renderMessageContent(msg)}
+                              </div>
+                              
+                              {/* মেসেজ টাইম এবং সেন্ট/ডেলিভার্ড ইন্ডিকেটর (নতুন যুক্ত করা হয়েছে) */}
+                              {!msg.isUnsent && (
+                                <div className={`flex items-center gap-1 mt-1 text-[9px] text-slate-500 font-medium ${isMyMsg ? 'justify-end' : 'justify-start'}`}>
+                                  <span>{msg.time || "12:00 PM"}</span>
+                                  {isMyMsg && (
+                                    <span className="text-blue-400 font-bold tracking-tight">✓✓</span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -569,12 +642,13 @@ export default function App() {
                       </div>
                     );
                   })}
+                  <div ref={messagesEndRef} />
                 </div>
 
-                {/* Input Controls Container - pb-safe এবং shrink-0 মোবাইল কিবোর্ডের জন্য নিচে ফিক্সড রাখবে */}
-                <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900/50 relative shrink-0 pb-safe-bottom" ref={popupRef}>
+                {/* Input Controls Container (কিবোর্ড ওপেন হলেও এটি ঠিকঠাক এডজাস্ট হবে) */}
+                <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900/50 relative shrink-0 pb-safe" ref={popupRef}>
                   
-                  {/* Emoji & GIF Popover - মোবাইলের স্ক্রিন রেশিও অনুযায়ী রেসপন্সিভ করা হয়েছে */}
+                  {/* Emoji & GIF Popover */}
                   <AnimatePresence>
                     {showPicker && !isChatDisabled && (
                       <motion.div initial={{ opacity: 0, y: 15, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 15, scale: 0.98 }} className="absolute bottom-20 left-2 right-2 sm:left-4 z-50 shadow-2xl rounded-2xl bg-slate-800 border border-slate-700 max-w-[310px] w-auto overflow-hidden flex flex-col">
@@ -583,11 +657,11 @@ export default function App() {
                           <button type="button" onClick={() => setActiveTab('gif')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-xl transition ${activeTab === 'gif' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}><Film size={15} />GIFs</button>
                         </div>
                         <div className="p-2 bg-slate-800 flex flex-col items-center justify-center">
-                          {activeTab === 'emoji' && <div className="w-full"><EmojiPicker onEmojiClick={onEmojiClick} theme={Theme.DARK} width="100%" height={260} skinTonesDisabled={true} searchDisabled={true} /></div>}
+                          {activeTab === 'emoji' && <div className="w-full"><EmojiPicker onEmojiClick={onEmojiClick} theme={Theme.DARK} width="100%" height={250} skinTonesDisabled={true} searchDisabled={true} /></div>}
                           {activeTab === 'gif' && (
                             <div className="w-full p-1">
                               <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl p-2 mb-2"><Search size={15} className="text-slate-400" /><input type="text" placeholder="Search Tenor GIFs..." value={gifSearch} onChange={(e) => setGifSearch(e.target.value)} className="bg-transparent text-xs text-white outline-none w-full" /></div>
-                              <div className="grid grid-cols-2 gap-2 max-h-[200px] overflow-y-auto p-0.5">{gifs.map((url, i) => <img key={i} src={url} alt="gif" onClick={() => handleGifSelect(url)} className="w-full h-20 object-cover rounded-lg cursor-pointer hover:scale-95 transition" />)}</div>
+                              <div className="grid grid-cols-2 gap-2 max-h-[190px] overflow-y-auto p-0.5">{gifs.map((url, i) => <img key={i} src={url} alt="gif" onClick={() => handleGifSelect(url)} className="w-full h-20 object-cover rounded-lg cursor-pointer hover:scale-95 transition" />)}</div>
                             </div>
                           )}
                         </div>
@@ -601,7 +675,7 @@ export default function App() {
                   <form onSubmit={handleSendMessage} className="flex gap-1.5 sm:gap-2 items-center">
                     <button type="button" onClick={() => setShowPicker(!showPicker)} className={`p-2.5 sm:p-3 rounded-xl border transition shrink-0 ${showPicker ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-400'}`}><Smile size={18} /></button>
                     <button type="button" onClick={() => fileInputRef.current.click()} className="p-2.5 sm:p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 hover:text-white shrink-0"><Paperclip size={18} /></button>
-                    <input type="text" value={message} onChange={e => setMessage(e.target.value)} placeholder="Type a message..." className="flex-1 min-w-0 border bg-slate-800 border-slate-700 rounded-xl p-2.5 sm:p-3 text-sm outline-none text-white focus:border-blue-500" />
+                    <input type="text" value={message} onChange={handleInputChange} placeholder="Type a message..." className="flex-1 min-w-0 border bg-slate-800 border-slate-700 rounded-xl p-2.5 sm:p-3 text-sm outline-none text-white focus:border-blue-500" />
                     <button type="submit" className="p-2.5 sm:p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 shrink-0"><Send size={16} /></button>
                   </form>
                 </div>
@@ -633,7 +707,7 @@ export default function App() {
         </>
       )}
 
-      {/* ==================== TERMS AND CONDITIONS MODAL START ==================== */}
+      {/* ==================== TERMS AND CONDITIONS MODAL ==================== */}
       <AnimatePresence>
         {showTermsPopup && (
           <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-[999999] flex items-center justify-center p-4">
@@ -644,40 +718,17 @@ export default function App() {
               </div>
               <div className="text-xs text-slate-300 space-y-3.5 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                 <p className="font-semibold text-white border-b border-slate-700 pb-1">Effective Date: May 2026</p>
-                
                 <div>
                   <h4 className="font-bold text-blue-400 mb-1">1. Acceptance of Terms</h4>
-                  <p>By creating a profile or accessing this platform, you agree to be bound by these legally binding Terms and Conditions, all applicable laws, and international regulations. If you do not agree, you are prohibited from using the service.</p>
+                  <p>By creating a profile or accessing this platform, you agree to be bound by these legally binding Terms and Conditions...</p>
                 </div>
-
                 <div>
                   <h4 className="font-bold text-blue-400 mb-1">2. Anonymity, Pseudonyms & Privacy Guard</h4>
-                  <p>This application is designed as an anonymous directory chat. We do not permanently store or track real identities, government IDs, or GPS locations on local databases. All data synchronization is volatile. However, data transmitted over WebSocket is subject to end-to-end telemetry for real-time routing.</p>
+                  <p>This application is designed as an anonymous directory chat...</p>
                 </div>
-
                 <div>
                   <h4 className="font-bold text-blue-400 mb-1">3. User Conduct & Prohibited Content</h4>
-                  <p>You strictly agree not to transmit: spam, automated floods, malware, extortion schemes, or unauthorized media. Any reporting or client-side block actions can restrict your socket connection without prior notification. Abusive communication may lead to an immediate ban.</p>
-                </div>
-
-                <div>
-                  <h4 className="font-bold text-blue-400 mb-1">4. Data Storage Limitation & Purge</h4>
-                  <p>Chat history is preserved entirely client-side inside the browser's LocalStorage and SessionStorage. Triggering a explicit "Logout" routine completely purges structural state records permanently. The platform holds no liability for unrecoverable data.</p>
-                </div>
-
-                <div>
-                  <h4 className="font-bold text-blue-400 mb-1">5. Limitation of Liability & Warranty Disclaimer</h4>
-                  <p>The service is provided on an "AS IS" and "AS AVAILABLE" basis without any express or implied warranties. The developers, operators, and hosting infrastructure providers shall not be held liable for any direct, indirect, or consequential damages resulting from connection failure, data corruption, or user misconduct.</p>
-                </div>
-
-                <div>
-                  <h4 className="font-bold text-blue-400 mb-1">6. Intellectual Property (IP) Rights</h4>
-                  <p>All source code, UI designs, layout logic, graphical tokens, and dynamic assets integrated within this deployment framework remain the exclusive property of the application owners and are protected under international copyright protocols.</p>
-                </div>
-
-                <div>
-                  <h4 className="font-bold text-blue-400 mb-1">7. Modifications to Service & Jurisdiction</h4>
-                  <p>Management reserves the ultimate right to update these terms or deploy platform patches at any moment without liability. Any disputes arising from the usage of this infrastructure shall be subject to the exclusive jurisdiction of the prevailing corporate legal framework.</p>
+                  <p>You strictly agree not to transmit: spam, automated floods, malware...</p>
                 </div>
               </div>
               <button type="button" onClick={() => { setAcceptedTermsLogin(true); setShowTermsPopup(false); }} className="mt-5 w-full bg-blue-600 hover:bg-blue-700 text-xs font-semibold py-2.5 rounded-xl transition shadow-lg shadow-blue-600/20">Accept Agreement & Proceed</button>
@@ -685,7 +736,6 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
-      {/* ==================== TERMS AND CONDITIONS MODAL END ==================== */}
 
       {/* Profile Modal */}
       <AnimatePresence>
