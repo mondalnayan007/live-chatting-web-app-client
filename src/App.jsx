@@ -47,7 +47,7 @@ export default function App() {
 
   // মেসেজ অ্যাকশন স্টেটসমূহ
   const [activeMenuMsgId, setActiveMenuMsgId] = useState(null);
-  const [dropdownPosition, setDropdownPosition] = useState('bottom'); // 'top' or 'bottom'
+  const [dropdownPosition, setDropdownPosition] = useState('bottom'); 
   const [editingMsgId, setEditingMsgId] = useState(null);
   const [editText, setEditText] = useState('');
 
@@ -58,8 +58,19 @@ export default function App() {
     } catch (e) { return {}; }
   });
   
-  const [unreadCounts, setUnreadCounts] = useState({}); 
+  // আনরিড মেসেজ কাউন্টার স্টেট
+  const [unreadCounts, setUnreadCounts] = useState(() => {
+    try {
+      const savedCounts = localStorage.getItem('global_unread_counts');
+      return savedCounts ? JSON.parse(savedCounts) : {};
+    } catch (e) { return {}; }
+  }); 
   const selectedUserRef = useRef(null);
+
+  // আনরিড কাউন্ট লোকালস্টোরেজে সিঙ্ক রাখা
+  useEffect(() => {
+    localStorage.setItem('global_unread_counts', JSON.stringify(unreadCounts));
+  }, [unreadCounts]);
 
   useEffect(() => {
     selectedUserRef.current = selectedUser;
@@ -78,8 +89,6 @@ export default function App() {
       if (popupRef.current && !popupRef.current.contains(event.target)) setShowPicker(false);
       if (menuRef.current && !menuRef.current.contains(event.target)) setShowBlockMenu(false);
       if (settingsMenuRef.current && !settingsMenuRef.current.contains(event.target)) setShowSettingsMenu(false);
-      
-      // মেসেজ ড্রপডাউনের বাইরে ক্লিক করলে সেটি বন্ধ করার জন্য
       if (!event.target.closest('.msg-action-container')) {
         setActiveMenuMsgId(null);
       }
@@ -112,7 +121,6 @@ export default function App() {
       return;
     }
 
-    // Live Backend URL replaced here
     socketRef.current = io('https://live-chatting-web-app-server.onrender.com');
     const socket = socketRef.current;
 
@@ -226,7 +234,6 @@ export default function App() {
     const cleanedName = formData.name.trim();
 
     try {
-      // Live Backend URL replaced here
       const response = await fetch('https://live-chatting-web-app-server.onrender.com/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -348,13 +355,14 @@ export default function App() {
   if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white"><Loader2 className="animate-spin" /></div>;
 
   return (
-    <div className="h-screen bg-slate-950 text-white flex relative overflow-hidden">
+    // h-screen ও overscroll-none নিশ্চিত করে মোবাইল কিবোর্ড ওপেন হলেও স্ক্রিন যেন বাইরে না যায়
+    <div className="h-screen w-screen bg-slate-950 text-white flex relative overflow-hidden fixed inset-0 overscroll-none select-none">
       <Toaster position="top-center" containerStyle={{ zIndex: 99999 }} reverseOrder={false} />
 
       {!user ? (
         /* --- LOGIN SCREEN --- */
-        <div className="absolute inset-0 bg-slate-900 flex items-center justify-center p-4 z-50">
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-800 text-white p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700">
+        <div className="absolute inset-0 bg-slate-900 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-800 text-white p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 my-auto">
             <h2 className="text-2xl font-bold text-center mb-6">Create Your Anonymous Profile</h2>
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="flex flex-col items-center mb-4">
@@ -405,8 +413,8 @@ export default function App() {
         /* --- MAIN DASHBOARD SCREEN --- */
         <>
           {/* Left Sidebar */}
-          <div className={`w-full md:w-1/3 border-r border-slate-800 flex flex-col bg-slate-900 ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
-            <div className="p-4 border-b border-slate-800 flex justify-between items-center">
+          <div className={`w-full md:w-1/3 border-r border-slate-800 flex flex-col bg-slate-900 h-full ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
+            <div className="p-4 border-b border-slate-800 flex justify-between items-center shrink-0">
               <button onClick={() => setProfileUser(user)} className="flex items-center gap-3 hover:bg-slate-800 p-2 rounded-xl text-left">
                 {renderAvatar(user, "w-9 h-9")}
                 <div><p className="text-xs font-bold leading-none">My Profile</p><p className="text-[10px] text-slate-500 mt-1">{user.name}</p></div>
@@ -414,7 +422,7 @@ export default function App() {
               <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 p-2 hover:bg-slate-800 rounded-xl"><LogOut size={20} /></button>
             </div>
 
-            <div className="p-3 bg-slate-950/40 border-b border-slate-800 space-y-2">
+            <div className="p-3 bg-slate-950/40 border-b border-slate-800 space-y-2 shrink-0">
               <div className="flex grid grid-cols-2 gap-2">
                 <select value={genderFilter} onChange={(e) => setGenderFilter(e.target.value)} className="w-full bg-slate-800 border border-slate-700 text-xs rounded-lg p-2">
                   <option value="All">All Genders</option>
@@ -429,22 +437,32 @@ export default function App() {
             </div>
 
             {/* Users List */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-2">
-              {activeUsers.filter(u => (genderFilter === 'All' || u.gender === genderFilter) && (countryFilter === 'All' || u.country === countryFilter)).map(u => (
-                <div key={u.id} onClick={() => setSelectedUser(u)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between ${selectedUser?.name === u.name ? 'bg-blue-600/20 border border-blue-500' : 'bg-slate-800/50'}`}>
-                  <div className="flex items-center gap-3">
-                    <div onClick={(e) => { e.stopPropagation(); setProfileUser(u); }}>{renderAvatar(u, "w-10 h-10")}</div>
-                    <div>
-                      <h3 className="text-sm font-medium">{u.name}</h3>
-                      <p className="text-[10px] text-slate-500">{u.country} • {u.gender}</p>
+            <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
+              {activeUsers.filter(u => (genderFilter === 'All' || u.gender === genderFilter) && (countryFilter === 'All' || u.country === countryFilter)).map(u => {
+                const count = unreadCounts[u.name] || 0;
+                return (
+                  <div key={u.id} onClick={() => setSelectedUser(u)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition ${selectedUser?.name === u.name ? 'bg-blue-600/20 border border-blue-500' : 'bg-slate-800/50 hover:bg-slate-800'}`}>
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div onClick={(e) => { e.stopPropagation(); setProfileUser(u); }} className="shrink-0">{renderAvatar(u, "w-10 h-10")}</div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-sm font-medium truncate">{u.name}</h3>
+                        <p className="text-[10px] text-slate-500 truncate">{u.country} • {u.gender}</p>
+                      </div>
                     </div>
+
+                    {/* লাল ডট মেসেজ ইন্ডিকেটর ডিজাইন (ফিরিয়ে আনা হয়েছে) */}
+                    {count > 0 && (
+                      <div className="ml-2 shrink-0 bg-red-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shadow-lg animate-pulse">
+                        {count}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* ==================== LEFT BOTTOM SETTINGS PANEL AREA START ==================== */}
-            <div className="p-3 border-t border-slate-800 bg-slate-950/40 relative" ref={settingsMenuRef}>
+            <div className="p-3 border-t border-slate-800 bg-slate-950/40 relative shrink-0" ref={settingsMenuRef}>
               <div className="flex items-center justify-between gap-2">
                 <button onClick={() => setShowSettingsMenu(!showSettingsMenu)} className="flex-1 flex items-center gap-3 p-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition text-sm font-medium">
                   <Settings size={18} className={`text-slate-400 transition-transform duration-300 ${showSettingsMenu ? 'rotate-45 text-blue-400' : ''}`} />
@@ -475,10 +493,11 @@ export default function App() {
           </div>
 
           {/* Right Message Panel */}
-          <div className={`w-full md:w-2/3 flex flex-col bg-slate-950 ${selectedUser ? 'flex' : 'hidden md:flex'}`}>
+          {/* h-[100dvh] মোবাইল ব্রাউজারের অ্যাড্রেস বার ও কীবোর্ড লেআউটকে অটো রিসাইজ করে ভিউপোর্টের ভিতরে রাখে */}
+          <div className={`w-full md:w-2/3 flex flex-col bg-slate-950 h-[100dvh] md:h-full overflow-hidden ${selectedUser ? 'flex' : 'hidden md:flex'}`}>
             {selectedUser ? (
               <>
-                <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/40">
+                <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/40 shrink-0">
                   <div className="flex items-center gap-3">
                     <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-900 border border-slate-800 rounded-xl md:hidden"><ArrowLeft size={18} /></button>
                     <div className="flex items-center gap-3 cursor-pointer" onClick={() => setProfileUser(selectedUser)}>
@@ -492,7 +511,7 @@ export default function App() {
                 </div>
 
                 {/* --- মেসেজ ডিসপ্লে এরিয়া --- */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 relative">
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0">
                   {(chatHistory[selectedUser.name] || []).map((msg, idx) => {
                     const isMyMsg = msg.type === 'outgoing';
                     const currentMsgId = msg.id || `fallback-${idx}`;
@@ -508,9 +527,9 @@ export default function App() {
                           </button>
                         )}
 
-                        <div className="relative max-w-[70%] group">
+                        <div className="relative max-w-[75%] sm:max-w-[70%] group">
                           {isEditingThis ? (
-                            <div className="bg-slate-800 border border-slate-700 p-2 rounded-2xl flex items-center gap-2 min-w-[240px]">
+                            <div className="bg-slate-800 border border-slate-700 p-2 rounded-2xl flex items-center gap-2 min-w-[220px] sm:min-w-[240px]">
                               <input type="text" value={editText} onChange={(e) => setEditText(e.target.value)} className="bg-slate-900 text-xs p-2 rounded-xl text-white outline-none flex-1 border border-slate-700" />
                               <button onClick={() => handleEditSubmit(currentMsgId)} className="p-1.5 bg-green-600 text-white rounded-lg"><Check size={14} /></button>
                               <button onClick={() => setEditingMsgId(null)} className="p-1.5 bg-slate-700 text-slate-300 rounded-lg"><X size={14} /></button>
@@ -552,23 +571,23 @@ export default function App() {
                   })}
                 </div>
 
-                {/* Input Controls Container */}
-                <div className="p-4 border-t border-slate-800 bg-slate-900/50 relative" ref={popupRef}>
+                {/* Input Controls Container - pb-safe এবং shrink-0 মোবাইল কিবোর্ডের জন্য নিচে ফিক্সড রাখবে */}
+                <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900/50 relative shrink-0 pb-safe-bottom" ref={popupRef}>
                   
-                  {/* Emoji & GIF Popover */}
+                  {/* Emoji & GIF Popover - মোবাইলের স্ক্রিন রেশিও অনুযায়ী রেসপন্সিভ করা হয়েছে */}
                   <AnimatePresence>
                     {showPicker && !isChatDisabled && (
-                      <motion.div initial={{ opacity: 0, y: 15, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 15, scale: 0.98 }} className="absolute bottom-20 left-4 z-50 shadow-2xl rounded-2xl bg-slate-800 border border-slate-700 w-[310px] overflow-hidden flex flex-col">
+                      <motion.div initial={{ opacity: 0, y: 15, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 15, scale: 0.98 }} className="absolute bottom-20 left-2 right-2 sm:left-4 z-50 shadow-2xl rounded-2xl bg-slate-800 border border-slate-700 max-w-[310px] w-auto overflow-hidden flex flex-col">
                         <div className="flex bg-slate-900/60 p-1.5 border-b border-slate-700/60">
                           <button type="button" onClick={() => setActiveTab('emoji')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-xl transition ${activeTab === 'emoji' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}><SmilePlus size={15} />Emojis</button>
                           <button type="button" onClick={() => setActiveTab('gif')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-xl transition ${activeTab === 'gif' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}><Film size={15} />GIFs</button>
                         </div>
                         <div className="p-2 bg-slate-800 flex flex-col items-center justify-center">
-                          {activeTab === 'emoji' && <div className="w-full"><EmojiPicker onEmojiClick={onEmojiClick} theme={Theme.DARK} width="100%" height={300} skinTonesDisabled={true} /></div>}
+                          {activeTab === 'emoji' && <div className="w-full"><EmojiPicker onEmojiClick={onEmojiClick} theme={Theme.DARK} width="100%" height={260} skinTonesDisabled={true} searchDisabled={true} /></div>}
                           {activeTab === 'gif' && (
                             <div className="w-full p-1">
                               <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl p-2 mb-2"><Search size={15} className="text-slate-400" /><input type="text" placeholder="Search Tenor GIFs..." value={gifSearch} onChange={(e) => setGifSearch(e.target.value)} className="bg-transparent text-xs text-white outline-none w-full" /></div>
-                              <div className="grid grid-cols-2 gap-2 max-h-[250px] overflow-y-auto p-0.5">{gifs.map((url, i) => <img key={i} src={url} alt="gif" onClick={() => handleGifSelect(url)} className="w-full h-20 object-cover rounded-lg cursor-pointer hover:scale-95 transition" />)}</div>
+                              <div className="grid grid-cols-2 gap-2 max-h-[200px] overflow-y-auto p-0.5">{gifs.map((url, i) => <img key={i} src={url} alt="gif" onClick={() => handleGifSelect(url)} className="w-full h-20 object-cover rounded-lg cursor-pointer hover:scale-95 transition" />)}</div>
                             </div>
                           )}
                         </div>
@@ -579,11 +598,11 @@ export default function App() {
                   <input type="file" ref={fileInputRef} onChange={handleFileShare} accept="image/*,video/*" className="hidden" />
                   
                   {/* Message Input Form */}
-                  <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
-                    <button type="button" onClick={() => setShowPicker(!showPicker)} className={`p-3 rounded-xl border transition ${showPicker ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-400'}`}><Smile size={20} /></button>
-                    <button type="button" onClick={() => fileInputRef.current.click()} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 hover:text-white"><Paperclip size={20} /></button>
-                    <input type="text" value={message} onChange={e => setMessage(e.target.value)} placeholder="Type a message..." className="flex-1 border bg-slate-800 border-slate-700 rounded-xl p-3 text-sm outline-none text-white focus:border-blue-500" />
-                    <button type="submit" className="p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700"><Send size={18} /></button>
+                  <form onSubmit={handleSendMessage} className="flex gap-1.5 sm:gap-2 items-center">
+                    <button type="button" onClick={() => setShowPicker(!showPicker)} className={`p-2.5 sm:p-3 rounded-xl border transition shrink-0 ${showPicker ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-400'}`}><Smile size={18} /></button>
+                    <button type="button" onClick={() => fileInputRef.current.click()} className="p-2.5 sm:p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 hover:text-white shrink-0"><Paperclip size={18} /></button>
+                    <input type="text" value={message} onChange={e => setMessage(e.target.value)} placeholder="Type a message..." className="flex-1 min-w-0 border bg-slate-800 border-slate-700 rounded-xl p-2.5 sm:p-3 text-sm outline-none text-white focus:border-blue-500" />
+                    <button type="submit" className="p-2.5 sm:p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 shrink-0"><Send size={16} /></button>
                   </form>
                 </div>
               </>
