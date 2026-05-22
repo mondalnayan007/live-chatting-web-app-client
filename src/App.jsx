@@ -36,7 +36,8 @@ export default function App() {
   const [gifs, setGifs] = useState([]);
   const [loadingGifs, setLoadingGifs] = useState(false);
   
-  const [formData, setFormData] = useState({ name: '', age: '', country: 'Bangladesh', gender: 'Male', profilePic: '' });
+  // লগইন ফর্ম ডেটা (ডিফল্টভাবে isGuest: true রাখা হয়েছে)
+  const [formData, setFormData] = useState({ name: '', age: '', country: 'Bangladesh', gender: 'Male', profilePic: '', isGuest: true });
   const [isHydrating, setIsHydrating] = useState(true);
   const [profileUser, setProfileUser] = useState(null);
   const [genderFilter, setGenderFilter] = useState('All');
@@ -53,10 +54,9 @@ export default function App() {
   const [dropdownPosition, setDropdownPosition] = useState('bottom'); 
   const [editingMsgId, setEditingMsgId] = useState(null);
   const [editText, setEditText] = useState('');
-
-  // হেডার ৩-ডট ব্লক পপআপের জন্য নতুন স্টেট
   const [showBlockPopup, setShowBlockPopup] = useState(false);
 
+  // চ্যাট হিস্ট্রি স্টেট (এখন প্রথম লোড ডাটাবেজ থেকে হবে, ব্যাকআপ হিসেবে লোকালস্টোরেজ থাকবে)
   const [chatHistory, setChatHistory] = useState(() => {
     try {
       const savedChats = localStorage.getItem('global_chat_history_final');
@@ -99,7 +99,7 @@ export default function App() {
     }
     setActiveMenuMsgId(null); 
     setEditingMsgId(null);     
-    setShowBlockPopup(false); // ইউজার চেঞ্জ করলে ব্লক পপআপ বন্ধ হবে
+    setShowBlockPopup(false);
     setTimeout(() => scrollToBottom(), 100);
   }, [selectedUser]);
 
@@ -165,7 +165,7 @@ export default function App() {
       return;
     }
 
-    // Blinking সমস্যা দূর করার জন্য রিকানেকশন অপ্টিমাইজড সকেট ইনিশিয়ালাইজেশন
+    // সকেট কানেকশন অপটিমাইজেশন (Blinking সমস্যা মুক্ত)
     socketRef.current = io(SERVER_URL, { 
       transient: true,
       reconnection: true,
@@ -178,6 +178,22 @@ export default function App() {
     socket.on('connect', () => {
       socket.emit('join_directory', user);
       setIsHydrating(false);
+    });
+
+    // মঙ্গোডিবি থেকে আসা সম্পূর্ণ পুরোনো চ্যাট হিস্ট্রি লোড করার ইভেন্ট
+    socket.on('load_chat_history_from_db', (dbHistory) => {
+      setChatHistory(prev => {
+        const mergedHistory = { ...prev, ...dbHistory };
+        try {
+          // ইমেজ বাদে শুধু টেক্সট মেসেজগুলো ফিল্টার করে লোকালস্টোরেজে সেভ রাখা (কোটা এরর এড়াতে)
+          const cleanStorageHistory = {};
+          Object.keys(mergedHistory).forEach(partner => {
+            cleanStorageHistory[partner] = mergedHistory[partner].filter(msg => msg.fileType === 'text' && !msg.text.startsWith('[GIF]: '));
+          });
+          localStorage.setItem('global_chat_history_final', JSON.stringify(cleanStorageHistory));
+        } catch (e) { console.warn("Storage Quota error handled."); }
+        return mergedHistory;
+      });
     });
 
     socket.on('update_directory', (users) => {
@@ -204,7 +220,6 @@ export default function App() {
           const userChat = prev[fromName] || [];
           const updatedChat = userChat.map(msg => msg.type === 'outgoing' ? { ...msg, status: 'seen' } : msg);
           const updated = { ...prev, [fromName]: updatedChat };
-          localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
           return updated;
         });
       }
@@ -217,11 +232,18 @@ export default function App() {
         const userHistory = prev[senderName] || [];
         if (userHistory.some(msg => msg.id === msgId)) return prev; 
 
-        const updated = { 
-          ...prev, 
-          [senderName]: [...userHistory, { id: msgId, sender: senderName, text: message, type: 'incoming', fileType: fileType || 'text', time: timestamp }] 
-        };
-        localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
+        const newMsg = { id: msgId, sender: senderName, text: message, type: 'incoming', fileType: fileType || 'text', time: timestamp };
+        const updatedChat = [...userHistory, newMsg];
+        const updated = { ...prev, [senderName]: updatedChat };
+        
+        // ইমেজ বাদে শুধু টেক্সট লোকালস্টোরেজে যাবে
+        if (fileType === 'text' && !message.startsWith('[GIF]: ')) {
+          try {
+            const currentStored = JSON.parse(localStorage.getItem('global_chat_history_final') || '{}');
+            currentStored[senderName] = [...(currentStored[senderName] || []), newMsg];
+            localStorage.setItem('global_chat_history_final', JSON.stringify(currentStored));
+          } catch(e) {}
+        }
         return updated;
       });
 
@@ -243,15 +265,8 @@ export default function App() {
     socket.on('receive_delivery_ack', ({ fromName, msgId, isSeen }) => {
       setChatHistory(prev => {
         const userChat = prev[fromName] || [];
-        const updatedChat = userChat.map(msg => {
-          if (msg.id === msgId) {
-            return { ...msg, status: isSeen ? 'seen' : 'delivered' };
-          }
-          return msg;
-        });
-        const updated = { ...prev, [fromName]: updatedChat };
-        localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
-        return updated;
+        const updatedChat = userChat.map(msg => msg.id === msgId ? { ...msg, status: isSeen ? 'seen' : 'delivered' } : msg);
+        return { ...prev, [fromName]: updatedChat };
       });
     });
 
@@ -260,9 +275,7 @@ export default function App() {
       setChatHistory(prev => {
         const userChat = prev[selectedUserRef.current.name] || [];
         const updatedChat = userChat.map(msg => msg.id === msgId ? { ...msg, text: "🚫 This message was unsent", isUnsent: true, fileType: 'text' } : msg);
-        const updated = { ...prev, [selectedUserRef.current.name]: updatedChat };
-        localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
-        return updated;
+        return { ...prev, [selectedUserRef.current.name]: updatedChat };
       });
     });
 
@@ -271,16 +284,14 @@ export default function App() {
       setChatHistory(prev => {
         const userChat = prev[selectedUserRef.current.name] || [];
         const updatedChat = userChat.map(msg => msg.id === msgId ? { ...msg, text: newText, isEdited: true } : msg);
-        const updated = { ...prev, [selectedUserRef.current.name]: updatedChat };
-        localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
-        return updated;
+        return { ...prev, [selectedUserRef.current.name]: updatedChat };
       });
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [user]); // ডিপেন্ডেন্সি থেকে allBlocks সরানো হয়েছে যাতে বার বার রিকানেক্ট না হয়
+  }, [user]);
 
   const handleBlockToggle = () => {
     if (!selectedUser) return;
@@ -297,7 +308,7 @@ export default function App() {
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 1024 * 1024) return alert("Image too large! Max 1MB.");
+      if (file.size > 2 * 1024 * 1024) return alert("Image too large! Max 2MB.");
       const reader = new FileReader();
       reader.onloadend = () => { setFormData({ ...formData, profilePic: reader.result }); };
       reader.readAsDataURL(file);
@@ -324,16 +335,23 @@ export default function App() {
     if (!acceptedTermsLogin) return toast.error("Please accept the Terms & Conditions.");
 
     try {
+      // ব্যাকএন্ড এপিআই-তে এখন পুরো অবজেক্টসহ (isGuest সহ) পাঠানো হচ্ছে
       const response = await fetch(`${SERVER_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: formData.name.trim() })
+        body: JSON.stringify({
+          name: formData.name.trim(),
+          age: formData.age,
+          country: formData.country,
+          gender: formData.gender,
+          profilePic: formData.profilePic || (formData.gender === 'Female' ? 'ICON_FEMALE' : 'ICON_MALE'),
+          isGuest: formData.isGuest
+        })
       });
       const data = await response.json();
       if (!response.ok) return toast.error(data.message);
 
-      let finalProfilePic = formData.profilePic || (formData.gender === 'Female' ? 'ICON_FEMALE' : 'ICON_MALE');
-      const userData = { ...formData, name: formData.name.trim(), profilePic: finalProfilePic };
+      const userData = data.user || { ...formData, name: formData.name.trim(), profilePic: formData.profilePic || (formData.gender === 'Female' ? 'ICON_FEMALE' : 'ICON_MALE') };
       
       sessionStorage.setItem('chat_user', JSON.stringify(userData));
       setUser(userData);
@@ -365,8 +383,18 @@ export default function App() {
     });
 
     setChatHistory(prev => {
-      const updated = { ...prev, [selectedUser.name]: [...(prev[selectedUser.name] || []), { id: uniqueMsgId, sender: 'You', text: textToSend, type: 'outgoing', fileType, time: currentTimeStr, status: 'sent' }] };
-      localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
+      const newMsg = { id: uniqueMsgId, sender: 'You', text: textToSend, type: 'outgoing', fileType, time: currentTimeStr, status: 'sent' };
+      const updatedChat = [...(prev[selectedUser.name] || []), newMsg];
+      const updated = { ...prev, [selectedUser.name]: updatedChat };
+      
+      // লোকালস্টোরেজ কোটা প্রটেকশন
+      if (fileType === 'text' && !textToSend.startsWith('[GIF]: ')) {
+        try {
+          const currentStored = JSON.parse(localStorage.getItem('global_chat_history_final') || '{}');
+          currentStored[selectedUser.name] = [...(currentStored[selectedUser.name] || []), newMsg];
+          localStorage.setItem('global_chat_history_final', JSON.stringify(currentStored));
+        } catch (e) {}
+      }
       return updated;
     });
     if (fileType === 'text') setMessage('');
@@ -377,9 +405,7 @@ export default function App() {
     socketRef.current.emit('delete_message_global', { toSocketId: selectedUser.id, msgId });
     setChatHistory(prev => {
       const updatedChat = (prev[selectedUser.name] || []).map(msg => msg.id === msgId ? { ...msg, text: "🚫 You unsent a message", isUnsent: true, fileType: 'text' } : msg);
-      const updated = { ...prev, [selectedUser.name]: updatedChat };
-      localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
-      return updated;
+      return { ...prev, [selectedUser.name]: updatedChat };
     });
     setActiveMenuMsgId(null);
   };
@@ -387,9 +413,7 @@ export default function App() {
   const handleRemoveForMe = (msgId) => {
     setChatHistory(prev => {
       const updatedChat = (prev[selectedUser.name] || []).filter(msg => msg.id !== msgId);
-      const updated = { ...prev, [selectedUser.name]: updatedChat };
-      localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
-      return updated;
+      return { ...prev, [selectedUser.name]: updatedChat };
     });
     setActiveMenuMsgId(null);
   };
@@ -398,9 +422,7 @@ export default function App() {
     socketRef.current.emit('edit_message_global', { toSocketId: selectedUser.id, msgId, newText: editText });
     setChatHistory(prev => {
       const updatedChat = (prev[selectedUser.name] || []).map(msg => msg.id === msgId ? { ...msg, text: editText, isEdited: true } : msg);
-      const updated = { ...prev, [selectedUser.name]: updatedChat };
-      localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
-      return updated;
+      return { ...prev, [selectedUser.name]: updatedChat };
     });
     setEditingMsgId(null);
   };
@@ -496,7 +518,6 @@ export default function App() {
       ) : (
         /* --- MAIN DASHBOARD INTERFACE --- */
         <>
-          {/* Sidebar Area */}
           <div className={`w-full md:w-1/3 border-r border-slate-800 flex flex-col bg-slate-900 h-full ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
             <div className="p-4 border-b border-slate-800 flex justify-between items-center shrink-0">
               <button onClick={() => setProfileUser(user)} className="flex items-center gap-3 p-1 rounded-xl text-left hover:bg-slate-800">
@@ -565,11 +586,9 @@ export default function App() {
             </div>
           </div>
 
-          {/* Chat Window Area (Mobile Keyboard Friendly) */}
           <div className={`fixed inset-0 md:relative w-full md:w-2/3 flex flex-col bg-slate-950 z-40 md:z-auto ${selectedUser ? 'flex' : 'hidden md:flex'}`}>
             {selectedUser ? (
               <>
-                {/* Header Chat Info */}
                 <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 backdrop-blur-md shrink-0 sticky top-0 z-50">
                   <div className="flex items-center gap-3 min-w-0">
                     <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-800 border border-slate-700 rounded-xl md:hidden text-slate-300"><ArrowLeft size={18} /></button>
@@ -586,43 +605,14 @@ export default function App() {
                     </div>
                   </div>
                   
-                  {/* ৩-ডট বাটন এবং ব্লক/আনব্লক পপআপ */}
                   <div className="relative">
-                    <button 
-                      type="button"
-                      onClick={() => setShowBlockPopup(!showBlockPopup)} 
-                      className="p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 hover:text-white transition"
-                    >
-                      <MoreVertical size={18} />
-                    </button>
-
+                    <button type="button" onClick={() => setShowBlockPopup(!showBlockPopup)} className="p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 hover:text-white transition"><MoreVertical size={18} /></button>
                     <AnimatePresence>
                       {showBlockPopup && (
                         <>
-                          {/* বাইরে ক্লিক হ্যান্ডলিং ব্যাকড্রপ */}
                           <div className="fixed inset-0 z-40" onClick={() => setShowBlockPopup(false)} />
-                          
-                          <motion.div 
-                            initial={{ opacity: 0, scale: 0.95, y: -5 }} 
-                            animate={{ opacity: 1, scale: 1, y: 0 }} 
-                            exit={{ opacity: 0, scale: 0.95, y: -5 }} 
-                            className="absolute right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl p-1.5 z-50 shadow-xl min-w-[140px]"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleBlockToggle();
-                                setShowBlockPopup(false);
-                              }}
-                              className={`w-full text-left text-xs p-2.5 rounded-lg flex items-center gap-2 font-medium transition ${
-                                amIBlockingHim(selectedUser.name) 
-                                  ? 'text-green-400 hover:bg-green-500/10' 
-                                  : 'text-red-400 hover:bg-red-500/10'
-                              }`}
-                            >
-                              <Ban size={14} />
-                              <span>{amIBlockingHim(selectedUser.name) ? 'Unblock User' : 'Block User'}</span>
-                            </button>
+                          <motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -5 }} className="absolute right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl p-1.5 z-50 shadow-xl min-w-[140px]">
+                            <button type="button" onClick={() => { handleBlockToggle(); setShowBlockPopup(false); }} className={`w-full text-left text-xs p-2.5 rounded-lg flex items-center gap-2 font-medium transition ${amIBlockingHim(selectedUser.name) ? 'text-green-400 hover:bg-green-500/10' : 'text-red-400 hover:bg-red-500/10'}`}><Ban size={14} /><span>{amIBlockingHim(selectedUser.name) ? 'Unblock User' : 'Block User'}</span></button>
                           </motion.div>
                         </>
                       )}
@@ -630,7 +620,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Messages Body */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0 bg-slate-950">
                   {(chatHistory[selectedUser.name] || []).map((msg, idx) => {
                     const isMyMsg = msg.type === 'outgoing';
@@ -685,7 +674,6 @@ export default function App() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Input Area */}
                 <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900 shrink-0 relative z-30" ref={popupRef}>
                   {amIBlockingHim(selectedUser.name) ? (
                     <div className="bg-red-950/40 border border-red-900/50 p-3 rounded-xl text-center text-xs text-red-400 font-medium">You have blocked this profile. Unblock to chat.</div>
