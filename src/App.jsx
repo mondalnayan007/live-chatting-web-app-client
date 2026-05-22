@@ -30,7 +30,7 @@ export default function App() {
   const [message, setMessage] = useState('');
   const [showPicker, setShowPicker] = useState(false);
   const [activeTab, setActiveTab] = useState('emoji');
-  const [allBlocks, setAllBlocks] = useState({}); // ব্লক স্ট্যাটাস স্টেট
+  const [allBlocks, setAllBlocks] = useState({}); 
 
   const [gifSearch, setGifSearch] = useState('');
   const [gifs, setGifs] = useState([]);
@@ -54,6 +54,9 @@ export default function App() {
   const [editingMsgId, setEditingMsgId] = useState(null);
   const [editText, setEditText] = useState('');
 
+  // হেডার ৩-ডট ব্লক পপআপের জন্য নতুন স্টেট
+  const [showBlockPopup, setShowBlockPopup] = useState(false);
+
   const [chatHistory, setChatHistory] = useState(() => {
     try {
       const savedChats = localStorage.getItem('global_chat_history_final');
@@ -70,14 +73,13 @@ export default function App() {
 
   const selectedUserRef = useRef(null);
 
-  // কাস্টম ব্লক চেক লজিক (Helper Functions)
   const amIBlockingHim = (partnerName) => {
-    if (!user || !allBlocks[user.name]) return false;
+    if (!user || !allBlocks || !allBlocks[user.name]) return false;
     return allBlocks[user.name].includes(partnerName);
   };
 
   const isHeBlockingMe = (partnerName) => {
-    if (!partnerName || !allBlocks[partnerName]) return false;
+    if (!partnerName || !allBlocks || !allBlocks[partnerName]) return false;
     return allBlocks[partnerName].includes(user?.name);
   };
 
@@ -97,6 +99,7 @@ export default function App() {
     }
     setActiveMenuMsgId(null); 
     setEditingMsgId(null);     
+    setShowBlockPopup(false); // ইউজার চেঞ্জ করলে ব্লক পপআপ বন্ধ হবে
     setTimeout(() => scrollToBottom(), 100);
   }, [selectedUser]);
 
@@ -156,14 +159,20 @@ export default function App() {
     return () => clearTimeout(delayDebounce);
   }, [gifSearch, showPicker, activeTab]);
 
-  // সকেট ক্লায়েন্ট লাইফসাইকেল
   useEffect(() => {
     if (!user) {
       setIsHydrating(false);
       return;
     }
 
-    socketRef.current = io(SERVER_URL, { transient: true });
+    // Blinking সমস্যা দূর করার জন্য রিকানেকশন অপ্টিমাইজড সকেট ইনিশিয়ালাইজেশন
+    socketRef.current = io(SERVER_URL, { 
+      transient: true,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
+    });
+    
     const socket = socketRef.current;
 
     socket.on('connect', () => {
@@ -202,17 +211,7 @@ export default function App() {
     });
 
     socket.on('receive_private_message', ({ fromSocketId, senderName, message, msgId, fileType, timestamp }) => {
-      // যদি রিসিভার নিজেই সেই সেন্ডারকে ব্লক করে রাখে, তবে মেসেজ ড্রপ হবে
-      if (globalBlocks[user.name] && globalBlocks[user.name].includes(senderName)) return;
-
-      const isChatWindowOpen = selectedUserRef.current && selectedUserRef.current.name === senderName;
-      
-      socket.emit('message_delivery_ack', { 
-        toSocketId: fromSocketId, 
-        fromName: user.name, 
-        msgId, 
-        isSeen: isChatWindowOpen 
-      });
+      if (socketRef.current && allBlocks && allBlocks[user.name] && allBlocks[user.name].includes(senderName)) return;
 
       setChatHistory(prev => {
         const userHistory = prev[senderName] || [];
@@ -224,6 +223,15 @@ export default function App() {
         };
         localStorage.setItem('global_chat_history_final', JSON.stringify(updated));
         return updated;
+      });
+
+      const isChatWindowOpen = selectedUserRef.current && selectedUserRef.current.name === senderName;
+      
+      socket.emit('message_delivery_ack', { 
+        toSocketId: fromSocketId, 
+        fromName: user.name, 
+        msgId, 
+        isSeen: isChatWindowOpen 
       });
 
       if (!isChatWindowOpen) {
@@ -272,9 +280,8 @@ export default function App() {
     return () => {
       socket.disconnect();
     };
-  }, [user]);
+  }, [user]); // ডিপেন্ডেন্সি থেকে allBlocks সরানো হয়েছে যাতে বার বার রিকানেক্ট না হয়
 
-  // ব্লক এবং আনব্লক অ্যাকশন ট্রিগার্স
   const handleBlockToggle = () => {
     if (!selectedUser) return;
     const blockingStatus = amIBlockingHim(selectedUser.name);
@@ -344,6 +351,8 @@ export default function App() {
   };
 
   const executeSendMessage = (textToSend, fileType = 'text') => {
+    if (!selectedUser || !socketRef.current) return;
+    
     const currentTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const uniqueMsgId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
@@ -556,11 +565,11 @@ export default function App() {
             </div>
           </div>
 
-          {/* Chat Window Area (🔒 Fixed Fullheight Mobile Fix Engine) */}
+          {/* Chat Window Area (Mobile Keyboard Friendly) */}
           <div className={`fixed inset-0 md:relative w-full md:w-2/3 flex flex-col bg-slate-950 z-40 md:z-auto ${selectedUser ? 'flex' : 'hidden md:flex'}`}>
             {selectedUser ? (
               <>
-                {/* Header Chat Info (Always Fixed on Mobile Keyboard open) */}
+                {/* Header Chat Info */}
                 <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 backdrop-blur-md shrink-0 sticky top-0 z-50">
                   <div className="flex items-center gap-3 min-w-0">
                     <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-800 border border-slate-700 rounded-xl md:hidden text-slate-300"><ArrowLeft size={18} /></button>
@@ -569,7 +578,7 @@ export default function App() {
                       <div className="min-w-0">
                         <h2 className="font-bold leading-none text-white truncate text-sm sm:text-base">{selectedUser.name}</h2>
                         {typingUsers[selectedUser.name] && !isHeBlockingMe(selectedUser.name) ? (
-                          <p className="text-[10px] text-green-400 font-semibold uppercase mt-1定位 animate-pulse">Typing...</p>
+                          <p className="text-[10px] text-green-400 font-semibold uppercase mt-1 animate-pulse">Typing...</p>
                         ) : (
                           <p className="text-[10px] text-green-500 font-medium uppercase mt-1">Active Now</p>
                         )}
@@ -577,14 +586,51 @@ export default function App() {
                     </div>
                   </div>
                   
-                  {/* ওরিজিনাল ব্লক-আনব্লক অ্যাকশন বাটন */}
-                  <button onClick={handleBlockToggle} className={`p-2.5 rounded-xl border flex items-center gap-1 text-xs font-bold transition ${amIBlockingHim(selectedUser.name) ? 'bg-red-600/20 border-red-500 text-red-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-red-400'}`}>
-                    <Ban size={14} />
-                    <span className="hidden sm:inline">{amIBlockingHim(selectedUser.name) ? 'Unblock' : 'Block'}</span>
-                  </button>
+                  {/* ৩-ডট বাটন এবং ব্লক/আনব্লক পপআপ */}
+                  <div className="relative">
+                    <button 
+                      type="button"
+                      onClick={() => setShowBlockPopup(!showBlockPopup)} 
+                      className="p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 hover:text-white transition"
+                    >
+                      <MoreVertical size={18} />
+                    </button>
+
+                    <AnimatePresence>
+                      {showBlockPopup && (
+                        <>
+                          {/* বাইরে ক্লিক হ্যান্ডলিং ব্যাকড্রপ */}
+                          <div className="fixed inset-0 z-40" onClick={() => setShowBlockPopup(false)} />
+                          
+                          <motion.div 
+                            initial={{ opacity: 0, scale: 0.95, y: -5 }} 
+                            animate={{ opacity: 1, scale: 1, y: 0 }} 
+                            exit={{ opacity: 0, scale: 0.95, y: -5 }} 
+                            className="absolute right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl p-1.5 z-50 shadow-xl min-w-[140px]"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleBlockToggle();
+                                setShowBlockPopup(false);
+                              }}
+                              className={`w-full text-left text-xs p-2.5 rounded-lg flex items-center gap-2 font-medium transition ${
+                                amIBlockingHim(selectedUser.name) 
+                                  ? 'text-green-400 hover:bg-green-500/10' 
+                                  : 'text-red-400 hover:bg-red-500/10'
+                              }`}
+                            >
+                              <Ban size={14} />
+                              <span>{amIBlockingHim(selectedUser.name) ? 'Unblock User' : 'Block User'}</span>
+                            </button>
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </div>
 
-                {/* Messages Body Area */}
+                {/* Messages Body */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0 bg-slate-950">
                   {(chatHistory[selectedUser.name] || []).map((msg, idx) => {
                     const isMyMsg = msg.type === 'outgoing';
@@ -639,10 +685,8 @@ export default function App() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Input System Control Area */}
+                {/* Input Area */}
                 <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900 shrink-0 relative z-30" ref={popupRef}>
-                  
-                  {/* শর্তসাপেক্ষ ব্লক স্ট্যাটাস লেআউট */}
                   {amIBlockingHim(selectedUser.name) ? (
                     <div className="bg-red-950/40 border border-red-900/50 p-3 rounded-xl text-center text-xs text-red-400 font-medium">You have blocked this profile. Unblock to chat.</div>
                   ) : isHeBlockingMe(selectedUser.name) ? (
@@ -707,7 +751,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Profile Card Viewer */}
+      {/* Profile Viewer */}
       <AnimatePresence>
         {profileUser && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
