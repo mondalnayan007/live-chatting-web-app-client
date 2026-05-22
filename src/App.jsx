@@ -5,7 +5,6 @@ import { User, Send, LogOut, Bell, Loader2, ShieldUser, X, Camera, MessageSquare
 import toast, { Toaster } from 'react-hot-toast';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 
-// আপনার প্রোডাকশন/লাইভ সার্ভারের ইউআরএল সেট করা হলো
 const SERVER_URL = "https://live-chatting-web-app-server.onrender.com";
 
 const isoCountries = ["Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bangladesh", "Belarus", "Belgium", "Brazil", "Canada", "China", "Denmark", "Egypt", "France", "Germany", "India", "Indonesia", "Italy", "Japan", "Malaysia", "Mexico", "Nepal", "Netherlands", "New Zealand", "Pakistan", "Philippines", "Russia", "Saudi Arabia", "Singapore", "Spain", "Sweden", "Switzerland", "Thailand", "Turkey", "UAE", "UK", "USA", "Vietnam"];
@@ -31,7 +30,7 @@ export default function App() {
   const [message, setMessage] = useState('');
   const [showPicker, setShowPicker] = useState(false);
   const [activeTab, setActiveTab] = useState('emoji');
-  const [allBlocks, setAllBlocks] = useState({});
+  const [allBlocks, setAllBlocks] = useState({}); // ব্লক স্ট্যাটাস স্টেট
 
   const [gifSearch, setGifSearch] = useState('');
   const [gifs, setGifs] = useState([]);
@@ -47,7 +46,6 @@ export default function App() {
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [showTermsPopup, setShowTermsPopup] = useState(false);
 
-  // লাইভ ইন্ডিকেটরস এবং টাইপিং স্ট্যাটাস ট্র্যাকার
   const [isTyping, setIsTyping] = useState(false);
   const [typingUsers, setTypingUsers] = useState({});
 
@@ -72,11 +70,21 @@ export default function App() {
 
   const selectedUserRef = useRef(null);
 
+  // কাস্টম ব্লক চেক লজিক (Helper Functions)
+  const amIBlockingHim = (partnerName) => {
+    if (!user || !allBlocks[user.name]) return false;
+    return allBlocks[user.name].includes(partnerName);
+  };
+
+  const isHeBlockingMe = (partnerName) => {
+    if (!partnerName || !allBlocks[partnerName]) return false;
+    return allBlocks[partnerName].includes(user?.name);
+  };
+
   useEffect(() => {
     localStorage.setItem('global_unread_counts', JSON.stringify(unreadCounts));
   }, [unreadCounts]);
 
-  // একটিভ চ্যাট ওপেন এবং সিন ট্র্যাকিং ট্রিগার
   useEffect(() => {
     selectedUserRef.current = selectedUser;
     if (selectedUser) {
@@ -102,7 +110,6 @@ export default function App() {
     }
   }, [chatHistory]);
 
-  // পপআপ এবং ড্রপডাউন ক্লোজার লজিক
   useEffect(() => {
     function handleClickOutside(event) {
       if (popupRef.current && !popupRef.current.contains(event.target)) setShowPicker(false);
@@ -113,10 +120,9 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // টাইপিং ইন্ডিকেটর হ্যান্ডলার
   const handleInputChange = (e) => {
     setMessage(e.target.value);
-    if (!selectedUser || !socketRef.current) return;
+    if (!selectedUser || !socketRef.current || amIBlockingHim(selectedUser.name) || isHeBlockingMe(selectedUser.name)) return;
 
     if (!isTyping) {
       setIsTyping(true);
@@ -135,7 +141,6 @@ export default function App() {
     }, 2000);
   };
 
-  // Tenor GIF লাইব্রেরি ইন্টিগ্রেশন
   useEffect(() => {
     if (!showPicker || activeTab !== 'gif') return;
     const fetchGifs = async () => {
@@ -151,7 +156,7 @@ export default function App() {
     return () => clearTimeout(delayDebounce);
   }, [gifSearch, showPicker, activeTab]);
 
-  // কোর সকেট লাইফসাইকেল লিসেনার্স
+  // সকেট ক্লায়েন্ট লাইফসাইকেল
   useEffect(() => {
     if (!user) {
       setIsHydrating(false);
@@ -180,12 +185,10 @@ export default function App() {
       setAllBlocks(blocksData || {});
     });
 
-    // টাইপিং ইন্ডিকেটর স্ট্যাটাস সিঙ্ক
     socket.on('receive_typing_status', ({ senderName, isTyping }) => {
       setTypingUsers(prev => ({ ...prev, [senderName]: isTyping }));
     });
 
-    // পার্টনার আপনার চ্যাট উইন্ডো ওপেন করলে ব্লু ডাবল টিক আপডেট করা
     socket.on('partner_marked_seen', ({ fromName }) => {
       if (selectedUserRef.current && selectedUserRef.current.name === fromName) {
         setChatHistory(prev => {
@@ -198,8 +201,10 @@ export default function App() {
       }
     });
 
-    // প্রাইভেট মেসেজ রিসিভ করা এবং অটো-ডেলিভারি মেসেজ পাঠানো
     socket.on('receive_private_message', ({ fromSocketId, senderName, message, msgId, fileType, timestamp }) => {
+      // যদি রিসিভার নিজেই সেই সেন্ডারকে ব্লক করে রাখে, তবে মেসেজ ড্রপ হবে
+      if (globalBlocks[user.name] && globalBlocks[user.name].includes(senderName)) return;
+
       const isChatWindowOpen = selectedUserRef.current && selectedUserRef.current.name === senderName;
       
       socket.emit('message_delivery_ack', { 
@@ -227,7 +232,6 @@ export default function App() {
       }
     });
 
-    // ডাবল টিক ট্র্যাকার একনলেজমেন্ট রিসিভার
     socket.on('receive_delivery_ack', ({ fromName, msgId, isSeen }) => {
       setChatHistory(prev => {
         const userChat = prev[fromName] || [];
@@ -270,6 +274,19 @@ export default function App() {
     };
   }, [user]);
 
+  // ব্লক এবং আনব্লক অ্যাকশন ট্রিগার্স
+  const handleBlockToggle = () => {
+    if (!selectedUser) return;
+    const blockingStatus = amIBlockingHim(selectedUser.name);
+    if (blockingStatus) {
+      socketRef.current.emit('unblock_user_global', { blockerName: user.name, blockedName: selectedUser.name });
+      toast.success(`Unblocked ${selectedUser.name}`);
+    } else {
+      socketRef.current.emit('block_user_global', { blockerName: user.name, blockedName: selectedUser.name });
+      toast.error(`Blocked ${selectedUser.name}`);
+    }
+  };
+
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -283,6 +300,9 @@ export default function App() {
   const handleFileShare = (e) => {
     const file = e.target.files[0];
     if (!file || !selectedUser) return;
+    if (amIBlockingHim(selectedUser.name) || isHeBlockingMe(selectedUser.name)) {
+      return toast.error("Action restricted by Block status!");
+    }
     let fileType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : null;
     if (!fileType) return alert("Only images and videos are supported.");
 
@@ -318,6 +338,8 @@ export default function App() {
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!message.trim() || !selectedUser) return;
+    if (amIBlockingHim(selectedUser.name)) return toast.error("You have blocked this user!");
+    if (isHeBlockingMe(selectedUser.name)) return toast.error("You cannot send messages to this user.");
     executeSendMessage(message, 'text');
   };
 
@@ -380,7 +402,11 @@ export default function App() {
     setActiveMenuMsgId(msgId);
   };
 
-  const handleGifSelect = (gifUrl) => executeSendMessage(`[GIF]: ${gifUrl}`, 'text');
+  const handleGifSelect = (gifUrl) => {
+    if (amIBlockingHim(selectedUser.name) || isHeBlockingMe(selectedUser.name)) return toast.error("Action blocked!");
+    executeSendMessage(`[GIF]: ${gifUrl}`, 'text');
+  };
+  
   const onEmojiClick = (emojiData) => setMessage(prev => prev + emojiData.emoji);
   const handleLogout = () => { sessionStorage.clear(); localStorage.clear(); window.location.reload(); };
 
@@ -414,7 +440,7 @@ export default function App() {
       <Toaster position="top-center" containerStyle={{ zIndex: 99999 }} />
 
       {!user ? (
-        /* --- ওরিজিনাল লগইন ইন্টারফেস --- */
+        /* --- LOGIN PANEL --- */
         <div className="absolute inset-0 bg-slate-900 flex items-center justify-center p-4 z-50 overflow-y-auto">
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-800 p-8 rounded-2xl w-full max-w-md border border-slate-700">
             <h2 className="text-2xl font-bold text-center mb-6">Create Your Anonymous Profile</h2>
@@ -459,9 +485,9 @@ export default function App() {
           </motion.div>
         </div>
       ) : (
-        /* --- ওরিজিনাল ড্যাশবোর্ড প্যানেল --- */
+        /* --- MAIN DASHBOARD INTERFACE --- */
         <>
-          {/* Sidebar */}
+          {/* Sidebar Area */}
           <div className={`w-full md:w-1/3 border-r border-slate-800 flex flex-col bg-slate-900 h-full ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
             <div className="p-4 border-b border-slate-800 flex justify-between items-center shrink-0">
               <button onClick={() => setProfileUser(user)} className="flex items-center gap-3 p-1 rounded-xl text-left hover:bg-slate-800">
@@ -471,7 +497,6 @@ export default function App() {
               <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 p-2"><LogOut size={20} /></button>
             </div>
 
-            {/* ফিল্টারিং প্যানেল */}
             <div className="p-3 bg-slate-950/40 border-b border-slate-800 grid grid-cols-2 gap-2 shrink-0">
               <select value={genderFilter} onChange={(e) => setGenderFilter(e.target.value)} className="bg-slate-800 border border-slate-700 text-xs rounded-lg p-2 text-white">
                 <option value="All">All Genders</option>
@@ -484,19 +509,22 @@ export default function App() {
               </select>
             </div>
 
-            {/* ইউজার লিস্ট */}
             <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
               {activeUsers.filter(u => (genderFilter === 'All' || u.gender === genderFilter) && (countryFilter === 'All' || u.country === countryFilter)).map(u => {
                 const count = unreadCounts[u.name] || 0;
                 const userIsTyping = typingUsers[u.name] || false;
+                const blockedMe = isHeBlockingMe(u.name);
 
                 return (
                   <div key={u.id} onClick={() => setSelectedUser(u)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition ${selectedUser?.name === u.name ? 'bg-blue-600/20 border border-blue-500' : 'bg-slate-800/50 hover:bg-slate-800'}`}>
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div onClick={(e) => { e.stopPropagation(); setProfileUser(u); }} className="shrink-0">{renderAvatar(u, "w-10 h-10")}</div>
                       <div className="min-w-0 flex-1">
-                        <h3 className="text-sm font-medium truncate">{u.name}</h3>
-                        {userIsTyping ? (
+                        <h3 className="text-sm font-medium truncate flex items-center gap-1.5">
+                          {u.name}
+                          {amIBlockingHim(u.name) && <span className="text-[10px] bg-red-600/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30">Blocked</span>}
+                        </h3>
+                        {userIsTyping && !blockedMe ? (
                           <p className="text-[11px] text-green-400 font-medium animate-pulse">typing...</p>
                         ) : (
                           <p className="text-[10px] text-slate-500 truncate">{u.country} • {u.gender}</p>
@@ -509,7 +537,6 @@ export default function App() {
               })}
             </div>
 
-            {/* ফুটার সেটিংস প্যানেল */}
             <div className="p-3 border-t border-slate-800 bg-slate-950/40 relative shrink-0" ref={settingsMenuRef}>
               <div className="flex items-center justify-between">
                 <button onClick={() => setShowSettingsMenu(!showSettingsMenu)} className="flex items-center gap-3 p-2 rounded-xl text-slate-400 hover:text-white transition text-sm">
@@ -529,30 +556,36 @@ export default function App() {
             </div>
           </div>
 
-          {/* Chat Window */}
-          <div className={`w-full md:w-2/3 flex flex-col bg-slate-950 h-screen md:h-full overflow-hidden ${selectedUser ? 'flex' : 'hidden md:flex'}`}>
+          {/* Chat Window Area (🔒 Fixed Fullheight Mobile Fix Engine) */}
+          <div className={`fixed inset-0 md:relative w-full md:w-2/3 flex flex-col bg-slate-950 z-40 md:z-auto ${selectedUser ? 'flex' : 'hidden md:flex'}`}>
             {selectedUser ? (
               <>
-                {/* Header Chat Info */}
-                <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/40 shrink-0 sticky top-0 z-10">
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-900 border border-slate-800 rounded-xl md:hidden text-slate-300"><ArrowLeft size={18} /></button>
-                    <div className="flex items-center gap-3 cursor-pointer" onClick={() => setProfileUser(selectedUser)}>
+                {/* Header Chat Info (Always Fixed on Mobile Keyboard open) */}
+                <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 backdrop-blur-md shrink-0 sticky top-0 z-50">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-800 border border-slate-700 rounded-xl md:hidden text-slate-300"><ArrowLeft size={18} /></button>
+                    <div className="flex items-center gap-3 cursor-pointer min-w-0" onClick={() => setProfileUser(selectedUser)}>
                       {renderAvatar(selectedUser, "w-10 h-10")}
-                      <div>
-                        <h2 className="font-bold leading-none text-white">{selectedUser.name}</h2>
-                        {typingUsers[selectedUser.name] ? (
-                          <p className="text-[10px] text-green-400 font-semibold uppercase mt-1 animate-pulse">Typing...</p>
+                      <div className="min-w-0">
+                        <h2 className="font-bold leading-none text-white truncate text-sm sm:text-base">{selectedUser.name}</h2>
+                        {typingUsers[selectedUser.name] && !isHeBlockingMe(selectedUser.name) ? (
+                          <p className="text-[10px] text-green-400 font-semibold uppercase mt-1定位 animate-pulse">Typing...</p>
                         ) : (
                           <p className="text-[10px] text-green-500 font-medium uppercase mt-1">Active Now</p>
                         )}
                       </div>
                     </div>
                   </div>
+                  
+                  {/* ওরিজিনাল ব্লক-আনব্লক অ্যাকশন বাটন */}
+                  <button onClick={handleBlockToggle} className={`p-2.5 rounded-xl border flex items-center gap-1 text-xs font-bold transition ${amIBlockingHim(selectedUser.name) ? 'bg-red-600/20 border-red-500 text-red-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-red-400'}`}>
+                    <Ban size={14} />
+                    <span className="hidden sm:inline">{amIBlockingHim(selectedUser.name) ? 'Unblock' : 'Block'}</span>
+                  </button>
                 </div>
 
-                {/* Messages Content */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0">
+                {/* Messages Body Area */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0 bg-slate-950">
                   {(chatHistory[selectedUser.name] || []).map((msg, idx) => {
                     const isMyMsg = msg.type === 'outgoing';
                     const currentMsgId = msg.id || `fallback-${idx}`;
@@ -606,40 +639,50 @@ export default function App() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Input ও বাটন কন্ট্রোল এরিয়া */}
-                <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900/50 relative shrink-0" ref={popupRef}>
-                  <AnimatePresence>
-                    {showPicker && (
-                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="absolute bottom-20 left-2 right-2 sm:left-4 z-50 rounded-2xl bg-slate-800 border border-slate-700 max-w-[310px] flex flex-col overflow-hidden shadow-2xl">
-                        <div className="flex bg-slate-900 p-1.5 border-b border-slate-700">
-                          <button type="button" onClick={() => setActiveTab('emoji')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl ${activeTab === 'emoji' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Emojis</button>
-                          <button type="button" onClick={() => setActiveTab('gif')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl ${activeTab === 'gif' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>GIFs</button>
-                        </div>
-                        <div className="p-2 bg-slate-800">
-                          {activeTab === 'emoji' && <EmojiPicker onEmojiClick={onEmojiClick} theme={Theme.DARK} width="100%" height={230} skinTonesDisabled searchDisabled />}
-                          {activeTab === 'gif' && (
-                            <div>
-                              <div className="flex items-center gap-2 bg-slate-900 rounded-xl p-2 mb-2"><Search size={14} /><input type="text" placeholder="Search GIFs..." value={gifSearch} onChange={(e) => setGifSearch(e.target.value)} className="bg-transparent text-xs outline-none w-full" /></div>
-                              <div className="grid grid-cols-2 gap-2 max-h-[180px] overflow-y-auto">{gifs.map((url, i) => <img key={i} src={url} alt="gif" onClick={() => handleGifSelect(url)} className="w-full h-16 object-cover rounded-lg cursor-pointer" />)}</div>
+                {/* Input System Control Area */}
+                <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900 shrink-0 relative z-30" ref={popupRef}>
+                  
+                  {/* শর্তসাপেক্ষ ব্লক স্ট্যাটাস লেআউট */}
+                  {amIBlockingHim(selectedUser.name) ? (
+                    <div className="bg-red-950/40 border border-red-900/50 p-3 rounded-xl text-center text-xs text-red-400 font-medium">You have blocked this profile. Unblock to chat.</div>
+                  ) : isHeBlockingMe(selectedUser.name) ? (
+                    <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center text-xs text-slate-500 font-medium">Sending restricted. You can no longer reply to this conversation.</div>
+                  ) : (
+                    <>
+                      <AnimatePresence>
+                        {showPicker && (
+                          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="absolute bottom-20 left-2 right-2 sm:left-4 z-50 rounded-2xl bg-slate-800 border border-slate-700 max-w-[310px] flex flex-col overflow-hidden shadow-2xl">
+                            <div className="flex bg-slate-900 p-1.5 border-b border-slate-700">
+                              <button type="button" onClick={() => setActiveTab('emoji')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl ${activeTab === 'emoji' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Emojis</button>
+                              <button type="button" onClick={() => setActiveTab('gif')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl ${activeTab === 'gif' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>GIFs</button>
                             </div>
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                            <div className="p-2 bg-slate-800">
+                              {activeTab === 'emoji' && <EmojiPicker onEmojiClick={onEmojiClick} theme={Theme.DARK} width="100%" height={230} skinTonesDisabled searchDisabled />}
+                              {activeTab === 'gif' && (
+                                <div>
+                                  <div className="flex items-center gap-2 bg-slate-900 rounded-xl p-2 mb-2"><Search size={14} /><input type="text" placeholder="Search GIFs..." value={gifSearch} onChange={(e) => setGifSearch(e.target.value)} className="bg-transparent text-xs outline-none w-full" /></div>
+                                  <div className="grid grid-cols-2 gap-2 max-h-[180px] overflow-y-auto">{gifs.map((url, i) => <img key={i} src={url} alt="gif" onClick={() => handleGifSelect(url)} className="w-full h-16 object-cover rounded-lg cursor-pointer" />)}</div>
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
 
-                  <input type="file" ref={fileInputRef} onChange={handleFileShare} accept="image/*,video/*" className="hidden" />
+                      <input type="file" ref={fileInputRef} onChange={handleFileShare} accept="image/*,video/*" className="hidden" />
 
-                  <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
-                    <button type="button" onClick={() => setShowPicker(!showPicker)} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400"><Smile size={18}/></button>
-                    <button type="button" onClick={() => fileInputRef.current.click()} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400"><Paperclip size={18}/></button>
-                    <input type="text" value={message} onChange={handleInputChange} placeholder="Type a message..." className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white focus:border-blue-500" />
-                    <button type="submit" className="p-3 bg-blue-600 text-white rounded-xl"><Send size={16}/></button>
-                  </form>
+                      <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
+                        <button type="button" onClick={() => setShowPicker(!showPicker)} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400"><Smile size={18}/></button>
+                        <button type="button" onClick={() => fileInputRef.current.click()} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400"><Paperclip size={18}/></button>
+                        <input type="text" value={message} onChange={handleInputChange} placeholder="Type a message..." className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white focus:border-blue-500" />
+                        <button type="submit" className="p-3 bg-blue-600 text-white rounded-xl"><Send size={16}/></button>
+                      </form>
+                    </>
+                  )}
                 </div>
               </>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-slate-950">
                 <div className="max-w-md p-8 bg-slate-900/40 border border-slate-800 rounded-3xl flex flex-col items-center">
                   <MessageSquare size={32} className="text-blue-400 mb-4" />
                   <h2 className="text-xl font-bold mb-2">Hello, {user.name}! 👋</h2>
@@ -651,7 +694,7 @@ export default function App() {
         </>
       )}
 
-      {/* Terms and Conditions Modal */}
+      {/* T&C Modal */}
       <AnimatePresence>
         {showTermsPopup && (
           <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[999999] flex items-center justify-center p-4">
@@ -664,7 +707,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Profile Popup Viewer */}
+      {/* Profile Card Viewer */}
       <AnimatePresence>
         {profileUser && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
