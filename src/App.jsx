@@ -271,32 +271,58 @@ export default function App() {
       }
     });
 
+// 🔔 ফ্রন্টএন্ডে রিয়েল-টাইম প্রাইভেট মেসেজ রিসিভ করার ফিক্সড ফাংশন
     socket.on('receive_private_message', ({ fromSocketId, senderName, message, msgId, fileType, timestamp }) => {
-      if (socketRef.current && allBlocks && allBlocks[user.name] && allBlocks[user.name].includes(senderName)) return;
+      
+      // ব্লকড ইউজার চেক (AI বটের জন্য এটি স্কিপ করবে)
+      if (fromSocketId !== 'ai_agent' && socketRef.current && allBlocks && allBlocks[user.name] && allBlocks[user.name].includes(senderName)) return;
+
+      // 🎯 [ফিক্স ১]: চ্যাট হিস্ট্রি ট্র্যাকিংয়ের জন্য সঠিক কি (Key) নির্ধারণ করা
+      // যদি মেসেজটি AI Agent থেকে আসে, তবে হিস্ট্রির কি (Key) হবে ফিক্সড '🤖 Chat-AI Bot'
+      const chatKey = fromSocketId === 'ai_agent' ? '🤖 Chat-AI Bot' : senderName;
 
       setChatHistory(prev => {
-        const userHistory = prev[senderName] || [];
+        const userHistory = prev[chatKey] || [];
         if (userHistory.some(msg => msg.id === msgId)) return prev; 
 
-        const newMsg = { id: msgId, sender: senderName, text: message, type: 'incoming', fileType: fileType || 'text', time: timestamp };
+        const newMsg = { 
+          id: msgId, 
+          sender: senderName, 
+          text: message, 
+          type: 'incoming', 
+          fileType: fileType || 'text', 
+          time: timestamp 
+        };
         const updatedChat = [...userHistory, newMsg];
         
-        // 🛠️ এখানে 'fileType === text' এর শর্তটি তুলে দেওয়া হলো যাতে ইমেজও লোকাল স্টোরেজে সেভ হয়
+        // লোকাল স্টোরেজে চ্যাট সেভ করা (AI চ্যাটও সাময়িকভাবে সেভ থাকবে যাতে রিফ্রেশে না হারায়)
         if (!message.startsWith('[GIF]: ')) {
           try {
             const currentStored = JSON.parse(localStorage.getItem('global_chat_history_final') || '{}');
-            currentStored[senderName] = [...(currentStored[senderName] || []), newMsg];
+            currentStored[chatKey] = [...(currentStored[chatKey] || []), newMsg];
             localStorage.setItem('global_chat_history_final', JSON.stringify(currentStored));
-          } catch(e) {}
+          } catch(e) {
+            console.error("Local storage error:", e);
+          }
         }
-        return { ...prev, [senderName]: updatedChat };
+        return { ...prev, [chatKey]: updatedChat };
       });
 
-      const isChatWindowOpen = selectedUserRef.current && selectedUserRef.current.name === senderName;
-      socket.emit('message_delivery_ack', { toSocketId: fromSocketId, fromName: user.name, msgId, isSeen: isChatWindowOpen });
+      // 🎯 [ফিক্স ২]: বর্তমানে চ্যাট উইন্ডো খোলা আছে কিনা তা নিখুঁতভাবে চেক করা
+      // ইউজার যদি বটের চ্যাটে থাকে (id === 'ai_agent' বা নাম ম্যাচ করে)
+      const isChatWindowOpen = selectedUserRef.current && (
+        selectedUserRef.current.name === chatKey || 
+        (selectedUserRef.current.id === 'ai_agent' && fromSocketId === 'ai_agent')
+      );
 
+      // মেসেজ ডেলিভারি একনলেজমেন্ট পাঠানো (শুধু রিয়েল ইউজারদের জন্য, AI এর জন্য লাগবে না)
+      if (fromSocketId !== 'ai_agent') {
+        socket.emit('message_delivery_ack', { toSocketId: fromSocketId, fromName: user.name, msgId, isSeen: isChatWindowOpen });
+      }
+
+      // যদি ওই চ্যাটবক্সটি ওপেন করা না থাকে, তবে আনরিড কাউন্ট বাড়বে এবং নোটিফিকেশন দেখাবে
       if (!isChatWindowOpen) {
-        setUnreadCounts(prev => ({ ...prev, [senderName]: (prev[senderName] || 0) + 1 }));
+        setUnreadCounts(prev => ({ ...prev, [chatKey]: (prev[chatKey] || 0) + 1 }));
         toast.success(`New message from ${senderName}`);
       }
     });
