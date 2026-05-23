@@ -231,12 +231,30 @@ export default function App() {
       });
     });
 
+   // 🤖 সকেট থেকে অনলাইন ইউজার লিস্ট আপডেট হওয়ার লজিক (AI Bot সহ ফিক্সড)
     socket.on('update_directory', (users) => {
-      const currentFilteredUsers = users.filter(u => u.name !== user.name);
-      setActiveUsers(currentFilteredUsers);
+      // ১. মেইন লিস্ট থেকে নিজেকে ফিল্টার করে বাদ দিন
+      const currentFilteredUsers = users.filter(u => u.name !== user?.name);
+      
+      // 🌟 ২. একটি ডিফল্ট AI বটের অবজেক্ট তৈরি করুন
+      const aiBotObj = { id: 'ai_agent', name: 'AI Partner', profilePic: 'AI_ICON', isAI: true };
+      
+      // 🌟 ৩. ফিল্টার করা ইউজার লিস্টের একদম শুরুতে (Unshift ব্যবহার করে) বটকে ঢুকিয়ে দিন
+      // এর ফলে লিস্টে যেই আসুক বা যাক, চ্যাটবট সবসময় সবার ওপরে থাকবে
+      const listWithAiBot = [aiBotObj, ...currentFilteredUsers];
+      
+      // ৪. নতুন এই কম্বাইন্ড লিস্টটি আপনার স্টেটে সেট করে দিন
+      setActiveUsers(listWithAiBot);
+      
+      // ৫. সিলেক্টেড ইউজারের লাইভ স্টেট ট্র্যাকিং (আগের মতোই থাকবে)
       if (selectedUserRef.current) {
-        const fresh = currentFilteredUsers.find(u => u.name === selectedUserRef.current.name);
-        if (fresh) setSelectedUser(fresh);
+        // যদি সিলেক্টেড ইউজারটি AI বট হয়, তবে তাকেই স্টেটে ফিক্সড রাখবে
+        if (selectedUserRef.current.id === 'ai_agent') {
+          setSelectedUser(aiBotObj);
+        } else {
+          const fresh = currentFilteredUsers.find(u => u.name === selectedUserRef.current.name);
+          if (fresh) setSelectedUser(fresh);
+        }
       }
     });
 
