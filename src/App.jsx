@@ -6,7 +6,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 
-const SERVER_URL = "http://localhost:5000";
+const SERVER_URL = "https://live-chatting-web-app-server.onrender.com";
 const GOOGLE_CLIENT_ID = "550936863221-hnd1i9amld9vsijieom0g3nm414g4h8p.apps.googleusercontent.com";
 
 const isoCountries = ["Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bangladesh", "Belarus", "Belgium", "Brazil", "Canada", "China", "Denmark", "Egypt", "France", "Germany", "India", "Indonesia", "Italy", "Japan", "Malaysia", "Mexico", "Nepal", "Netherlands", "New Zealand", "Pakistan", "Philippines", "Russia", "Saudi Arabia", "Singapore", "Spain", "Sweden", "Switzerland", "Thailand", "Turkey", "UAE", "UK", "USA", "Vietnam"];
