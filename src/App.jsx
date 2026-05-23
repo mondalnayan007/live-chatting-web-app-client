@@ -6,7 +6,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 
-const SERVER_URL = "https://live-chatting-web-app-server.onrender.com";
+const SERVER_URL = "http://localhost:5000";
 const GOOGLE_CLIENT_ID = "550936863221-hnd1i9amld9vsijieom0g3nm414g4h8p.apps.googleusercontent.com";
 
 const isoCountries = ["Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bangladesh", "Belarus", "Belgium", "Brazil", "Canada", "China", "Denmark", "Egypt", "France", "Germany", "India", "Indonesia", "Italy", "Japan", "Malaysia", "Mexico", "Nepal", "Netherlands", "New Zealand", "Pakistan", "Philippines", "Russia", "Saudi Arabia", "Singapore", "Spain", "Sweden", "Switzerland", "Thailand", "Turkey", "UAE", "UK", "USA", "Vietnam"];
@@ -87,7 +87,7 @@ export default function App() {
     localStorage.setItem('global_unread_counts', JSON.stringify(unreadCounts));
   }, [unreadCounts]);
 
-  // চ্যাট পার্টনার সিলেক্ট হওয়ার ওয়াচ-ইফেক্ট
+  // চ্যাট পার্টনার সিলেক্ট হওয়ার ওয়াচ-ইফেক্ট
   useEffect(() => {
     selectedUserRef.current = selectedUser;
     if (selectedUser) {
@@ -96,7 +96,7 @@ export default function App() {
       if (socketRef.current && socketRef.current.connected) {
         socketRef.current.emit('chat_opened_or_seen', { fromName: user.name, toSocketId: selectedUser.id });
         
-        // 🛠️ [এখানে যুক্ত করা হলো]: নতুন চ্যাট পার্টনার সিলেক্ট হলেই ডাটাবেজ থেকে ওল্ড হিস্ট্রি চেয়ে পাঠানো হবে
+        // নতুন চ্যাট পার্টনার সিলেক্ট হলেই ডাটাবেজ থেকে ওল্ড হিস্ট্রি চেয়ে পাঠানো হবে
         socketRef.current.emit('get_chat_history', { sender: user.name, receiver: selectedUser.name });
       }
     }
@@ -160,8 +160,7 @@ export default function App() {
     return () => clearTimeout(delayDebounce);
   }, [gifSearch, showPicker, activeTab]);
 
-
-  // 🌟 [সকেটের মূল বড় USEEFFECT ব্লকটি নিচে সাজানো হলো] 🌟
+  // 🌟 [সকেটের মূল বড় USEEFFECT ব্লক] 🌟
   useEffect(() => {
     if (!user) {
       setIsHydrating(false);
@@ -177,8 +176,7 @@ export default function App() {
     
     const socket = socketRef.current;
 
-   socket.on('connect', () => {
-      // Storage session sync update
+    socket.on('connect', () => {
       const savedUser = sessionStorage.getItem('chat_user');
       const currentUser = savedUser ? JSON.parse(savedUser) : user;
       
@@ -187,7 +185,6 @@ export default function App() {
       }
       setIsHydrating(false);
 
-      // Re-fetch database messages history right after refresh handshake
       if (selectedUserRef.current && currentUser) {
         socket.emit('get_chat_history', { 
           sender: currentUser.name.trim(), 
@@ -196,16 +193,14 @@ export default function App() {
       }
     });
 
-    // 🛠️ [এখানে যুক্ত করা হলো]: ডাটাবেজ থেকে ওল্ড চ্যাট হিস্ট্রি প্রপারলি চ্যাটবক্সে রেন্ডার করার লিসেনার
     // 1. Database theke old history load er listener
     socket.on('load_chat_history', (dbHistory) => {
       if (!selectedUserRef.current) return;
       
       const formattedHistory = dbHistory.map(msg => ({
         id: msg.msgId,
-        // Name 'You' ba Sender name set kora
         sender: msg.senderName === user.name ? 'You' : msg.senderName,
-        text: msg.message, // Ekhane image base64 ba text thakbe
+        text: msg.message, 
         type: msg.senderName === user.name ? 'outgoing' : 'incoming',
         fileType: msg.fileType || 'text',
         time: msg.timestamp 
@@ -217,12 +212,11 @@ export default function App() {
       }));
     });
 
-  // 2. Local storage load listener block (Filter bad dewa hoyeche)
+    // 2. Local storage load listener block
     socket.on('load_chat_history_from_db', (dbHistory) => {
       setChatHistory(prev => {
         const mergedHistory = { ...prev, ...dbHistory };
         try {
-          // ⚠️ Kono rokom text filter chara ekhane local storage sync hobe
           localStorage.setItem('global_chat_history_final', JSON.stringify(mergedHistory));
         } catch (e) {
           console.error("Local storage limit exceed for large base64 image strings");
@@ -231,30 +225,15 @@ export default function App() {
       });
     });
 
-   // 🤖 সকেট থেকে অনলাইন ইউজার লিস্ট আপডেট হওয়ার লজিক (AI Bot সহ ফিক্সড)
+    // 🎯 সকেট থেকে অনলাইন ইউজার লিস্ট আপডেট হওয়ার লজিক (AI Bot সম্পূর্ণ রিমুভড)
     socket.on('update_directory', (users) => {
-      // ১. মেইন লিস্ট থেকে নিজেকে ফিল্টার করে বাদ দিন
       const currentFilteredUsers = users.filter(u => u.name !== user?.name);
       
-      // 🌟 ২. একটি ডিফল্ট AI বটের অবজেক্ট তৈরি করুন
-      const aiBotObj = { id: 'ai_agent', name: 'AI Partner', profilePic: 'AI_ICON', isAI: true };
+      setActiveUsers(currentFilteredUsers);
       
-      // 🌟 ৩. ফিল্টার করা ইউজার লিস্টের একদম শুরুতে (Unshift ব্যবহার করে) বটকে ঢুকিয়ে দিন
-      // এর ফলে লিস্টে যেই আসুক বা যাক, চ্যাটবট সবসময় সবার ওপরে থাকবে
-      const listWithAiBot = [aiBotObj, ...currentFilteredUsers];
-      
-      // ৪. নতুন এই কম্বাইন্ড লিস্টটি আপনার স্টেটে সেট করে দিন
-      setActiveUsers(listWithAiBot);
-      
-      // ৫. সিলেক্টেড ইউজারের লাইভ স্টেট ট্র্যাকিং (আগের মতোই থাকবে)
       if (selectedUserRef.current) {
-        // যদি সিলেক্টেড ইউজারটি AI বট হয়, তবে তাকেই স্টেটে ফিক্সড রাখবে
-        if (selectedUserRef.current.id === 'ai_agent') {
-          setSelectedUser(aiBotObj);
-        } else {
-          const fresh = currentFilteredUsers.find(u => u.name === selectedUserRef.current.name);
-          if (fresh) setSelectedUser(fresh);
-        }
+        const fresh = currentFilteredUsers.find(u => u.name === selectedUserRef.current.name);
+        if (fresh) setSelectedUser(fresh);
       }
     });
 
@@ -271,15 +250,11 @@ export default function App() {
       }
     });
 
-// 🔔 ফ্রন্টএন্ডে রিয়েল-টাইম প্রাইভেট মেসেজ রিসিভ করার ফিক্সড ফাংশন
+    // 🔔 ফ্রন্টএন্ডে রিয়েল-টাইম প্রাইভেট মেসেজ রিসিভ করার ফিক্সড ফাংশন (AI সম্পূর্ণ রিমুভড)
     socket.on('receive_private_message', ({ fromSocketId, senderName, message, msgId, fileType, timestamp }) => {
-      
-      // ব্লকড ইউজার চেক (AI বটের জন্য এটি স্কিপ করবে)
-      if (fromSocketId !== 'ai_agent' && socketRef.current && allBlocks && allBlocks[user.name] && allBlocks[user.name].includes(senderName)) return;
+      if (socketRef.current && allBlocks && allBlocks[user.name] && allBlocks[user.name].includes(senderName)) return;
 
-      // 🎯 [ফিক্স ১]: চ্যাট হিস্ট্রি ট্র্যাকিংয়ের জন্য সঠিক কি (Key) নির্ধারণ করা
-      // যদি মেসেজটি AI Agent থেকে আসে, তবে হিস্ট্রির কি (Key) হবে ফিক্সড '🤖 Chat-AI Bot'
-      const chatKey = fromSocketId === 'ai_agent' ? '🤖 Chat-AI Bot' : senderName;
+      const chatKey = senderName;
 
       setChatHistory(prev => {
         const userHistory = prev[chatKey] || [];
@@ -295,7 +270,6 @@ export default function App() {
         };
         const updatedChat = [...userHistory, newMsg];
         
-        // লোকাল স্টোরেজে চ্যাট সেভ করা (AI চ্যাটও সাময়িকভাবে সেভ থাকবে যাতে রিফ্রেশে না হারায়)
         if (!message.startsWith('[GIF]: ')) {
           try {
             const currentStored = JSON.parse(localStorage.getItem('global_chat_history_final') || '{}');
@@ -308,19 +282,13 @@ export default function App() {
         return { ...prev, [chatKey]: updatedChat };
       });
 
-      // 🎯 [ফিক্স ২]: বর্তমানে চ্যাট উইন্ডো খোলা আছে কিনা তা নিখুঁতভাবে চেক করা
-      // ইউজার যদি বটের চ্যাটে থাকে (id === 'ai_agent' বা নাম ম্যাচ করে)
-      const isChatWindowOpen = selectedUserRef.current && (
-        selectedUserRef.current.name === chatKey || 
-        (selectedUserRef.current.id === 'ai_agent' && fromSocketId === 'ai_agent')
-      );
+      // 🎯 [ফিক্স ২]: বর্তমানে চ্যাট উইন্ডো খোলা আছে কিনা তা নিখুঁতভাবে চেক করা (রিয়েল ইউজার ধরে)
+      const isChatWindowOpen = selectedUserRef.current && selectedUserRef.current.name === chatKey;
 
-      // মেসেজ ডেলিভারি একনলেজমেন্ট পাঠানো (শুধু রিয়েল ইউজারদের জন্য, AI এর জন্য লাগবে না)
-      if (fromSocketId !== 'ai_agent') {
-        socket.emit('message_delivery_ack', { toSocketId: fromSocketId, fromName: user.name, msgId, isSeen: isChatWindowOpen });
-      }
+      // মেসেজ ডেলিভারি একনলেজমেন্ট পাঠানো (সরাসরি অন্য ইউজারের কাছে যাবে)
+      socket.emit('message_delivery_ack', { toSocketId: fromSocketId, fromName: user.name, msgId, isSeen: isChatWindowOpen });
 
-      // যদি ওই চ্যাটবক্সটি ওপেন করা না থাকে, তবে আনরিড কাউন্ট বাড়বে এবং নোটিফিকেশন দেখাবে
+      // যদি ওই চ্যাটবক্সটি ওপেন করা না থাকে, তবে আনরিড কাউন্ট বাড়বে এবং নোটিফিকেশন দেখাবে
       if (!isChatWindowOpen) {
         setUnreadCounts(prev => ({ ...prev, [chatKey]: (prev[chatKey] || 0) + 1 }));
         toast.success(`New message from ${senderName}`);
@@ -356,9 +324,6 @@ export default function App() {
     return () => { socket.disconnect(); };
   }, [user]);
 
-  
-  
-
   const handleBlockToggle = () => {
     if (!selectedUser) return;
     if (amIBlockingHim(selectedUser.name)) {
@@ -384,12 +349,12 @@ export default function App() {
     const file = e.target.files[0];
     if (!file || !selectedUser) return;
     
-    // 🛠️ ২৫ এমবি (25MB) ফাইল সাইজ চেক করার লজিক যুক্ত করা হলো
-    const MAX_FILE_SIZE = 25 * 1024 * 1024; // ২৫ এমবি বাইটসে
+    // ২৫ এমবি (25MB) ফাইল সাইজ চেক করার লজিক
+    const MAX_FILE_SIZE = 25 * 1024 * 1024; 
     if (file.size > MAX_FILE_SIZE) {
       alert("⚠️ You cannot upload files larger than 25MB!");
-      e.target.value = ""; // ইনপুট ফিল্ডটি খালি করে দেওয়া হলো
-      return; // ফাংশন এখানেই স্টপ হয়ে যাবে, ফাইল আপলোড হবে না
+      e.target.value = ""; 
+      return; 
     }
 
     if (amIBlockingHim(selectedUser.name) || isHeBlockingMe(selectedUser.name)) return toast.error("Action restricted!");
@@ -461,33 +426,26 @@ export default function App() {
     executeSendMessage(message, 'text');
   };
 
-const executeSendMessage = (textToSend, fileType = 'text') => {
+  const executeSendMessage = (textToSend, fileType = 'text') => {
     if (!selectedUser || !socketRef.current) return;
     const currentTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const uniqueMsgId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
-    // 🎯 [ফিক্স ১]: যদি চ্যাট পার্টনার AI হয়, তবে রিসিভার নেম ডাটাবেজের সাথে মিলিয়ে ফিক্সড করা হলো
-    const isAi = selectedUser.id === 'ai_agent';
-    const finalReceiverName = isAi ? '🤖 Chat-AI Bot' : selectedUser.name;
-
-    // 🛠️ সকেটের মাধ্যমে ব্যাকএন্ড এবং ডাটাবেজে টেক্সট/ইমেজ পাঠানোর সঠিক অবজেক্ট
+    // সকেটের মাধ্যমে ব্যাকএন্ডে মেসেজ পাঠানোর পরিচ্ছন্ন অবজেক্ট (কোনো AI ফিল্টারিং ছাড়া)
     socketRef.current.emit('send_private_message', { 
       toSocketId: selectedUser.id, 
-      message: textToSend, // টেক্সট বা ইমেজের বেস৬৪ ডাটা—উভয়ই এই ভেরিয়েবলে থাকে
+      message: textToSend, 
       msgId: uniqueMsgId, 
       fileType, 
       timestamp: currentTimeStr,
       senderName: user.name,       
-      receiverName: finalReceiverName // ফিক্সড নাম পাঠানো হচ্ছে
+      receiverName: selectedUser.name 
     });
 
-    // 🎯 [ফিক্স ২]: চ্যাট হিস্ট্রি এবং লোকাল স্টোরেজের অবজেক্ট কী (Key) হ্যান্ডেল করা
-    const chatKey = isAi ? '🤖 Chat-AI Bot' : selectedUser.name;
+    const chatKey = selectedUser.name;
 
     setChatHistory(prev => {
       const newMsg = { id: uniqueMsgId, sender: 'You', text: textToSend, type: 'outgoing', fileType, time: currentTimeStr, status: 'sent' };
-      
-      // selectedUser.name এর বদলে ফিক্সড chatKey ব্যবহার করা হলো
       const updatedChat = [...(prev[chatKey] || []), newMsg];
       
       if (!textToSend.startsWith('[GIF]: ')) {
@@ -605,7 +563,6 @@ if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center 
                     </select>
                   </div>
                 </div>
-
                 <div>
                   <label className="text-xs text-slate-400 uppercase font-bold">Country</label>
                   <select value={formData.country} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white text-sm" onChange={e => setFormData({...formData, country: e.target.value})}>
