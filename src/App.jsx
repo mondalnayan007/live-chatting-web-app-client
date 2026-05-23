@@ -6,7 +6,9 @@ import toast, { Toaster } from 'react-hot-toast';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 
-const SERVER_URL = "https://live-chatting-web-app-server.onrender.com";
+const SERVER_URL = window.location.hostname === 'localhost' 
+  ? "http://localhost:5000" 
+  : "https://live-chatting-web-app-server.onrender.com"; // 👈 এখানে তোর লাইভ সার্ভারের ইউআরএল বসাবি
 const GOOGLE_CLIENT_ID = "550936863221-hnd1i9amld9vsijieom0g3nm414g4h8p.apps.googleusercontent.com";
 
 const isoCountries = ["Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bangladesh", "Belarus", "Belgium", "Brazil", "Canada", "China", "Denmark", "Egypt", "France", "Germany", "India", "Indonesia", "Italy", "Japan", "Malaysia", "Mexico", "Nepal", "Netherlands", "New Zealand", "Pakistan", "Philippines", "Russia", "Saudi Arabia", "Singapore", "Spain", "Sweden", "Switzerland", "Thailand", "Turkey", "UAE", "UK", "USA", "Vietnam"];
@@ -193,7 +195,7 @@ export default function App() {
       }
     });
 
-    // 1. Database theke old history load er listener
+    // 1. Database theke old history load er listener (Fixed with Reaction)
     socket.on('load_chat_history', (dbHistory) => {
       if (!selectedUserRef.current) return;
       
@@ -203,7 +205,9 @@ export default function App() {
         text: msg.message, 
         type: msg.senderName === user.name ? 'outgoing' : 'incoming',
         fileType: msg.fileType || 'text',
-        time: msg.timestamp 
+        time: msg.timestamp,
+        // 🔥 ডাটাবেজ থেকে রিঅ্যাকশন ডাটা ফ্রন্টএন্ডের জন্য রিসিভ করা হলো
+        reaction: msg.reaction || null 
       }));
 
       setChatHistory(prev => ({
@@ -211,7 +215,6 @@ export default function App() {
         [selectedUserRef.current.name]: formattedHistory
       }));
     });
-
     // 2. Local storage load listener block
     socket.on('load_chat_history_from_db', (dbHistory) => {
       setChatHistory(prev => {
@@ -309,6 +312,17 @@ export default function App() {
         const userChat = prev[selectedUserRef.current.name] || [];
         const updatedChat = userChat.map(msg => msg.id === msgId ? { ...msg, text: "🚫 This message was unsent", isUnsent: true, fileType: 'text' } : msg);
         return { ...prev, [selectedUserRef.current.name]: updatedChat };
+      });
+    });
+
+    // 🎭 রিয়েল-টাইম রিঅ্যাকশন রিসিভ করা
+    socket.on('message_reaction_global', ({ msgId, reaction, fromName }) => {
+      setChatHistory(prev => {
+        const userChat = prev[fromName] || [];
+        const updatedChat = userChat.map(msg => 
+          msg.id === msgId ? { ...msg, reaction: msg.reaction === reaction ? null : reaction } : msg
+        );
+        return { ...prev, [fromName]: updatedChat };
       });
     });
 
@@ -475,6 +489,41 @@ export default function App() {
     setChatHistory(prev => { return { ...prev, [selectedUser.name]: (prev[selectedUser.name] || []).filter(msg => msg.id !== msgId) }; });
     setActiveMenuMsgId(null);
   };
+
+ // 🎭 পিওর সকেট ও ডাটাবেজ ব্যাকড রিঅ্যাকশন হ্যান্ডলার
+  const handleMessageReaction = (msgId, emoji) => {
+    if (!selectedUser || !socketRef.current) return;
+
+    setChatHistory(prev => {
+      const chatKey = selectedUser.name;
+      const userChat = prev[chatKey] || [];
+      
+      const updatedChat = userChat.map(msg => {
+        // তোর ডাটাবেজের আইডি সাধারণত '_id' বা 'id' হয়, সেটা চেক করে ম্যাচ করছি
+        const currentMsgId = msg.id || msg._id; 
+        
+        if (currentMsgId === msgId) {
+          const nextReaction = msg.reaction === emoji ? null : emoji;
+          
+          // 🚀 সরাসরি ব্যাকএন্ড সকেটে হিট পাঠাচ্ছি (যা ডাটাবেজে সেভ করবে)
+          socketRef.current.emit('send_message_reaction', {
+            toSocketId: selectedUser.id,
+            msgId,
+            reaction: nextReaction,
+            senderName: user.name
+          });
+
+          return { ...msg, reaction: nextReaction };
+        }
+        return msg;
+      });
+
+      // লোকাল স্টোরেজের কোড এখান থেকে হাওয়া!
+      return { ...prev, [chatKey]: updatedChat };
+    });
+  };
+
+
 
   const handleEditSubmit = (msgId) => {
     socketRef.current.emit('edit_message_global', { toSocketId: selectedUser.id, msgId, newText: editText });
@@ -721,17 +770,59 @@ if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center 
                                 <button onClick={() => setEditingMsgId(null)} className="p-1 bg-slate-700 rounded text-slate-300"><X size={12} /></button>
                               </div>
                             ) : (
-                              <div className="flex flex-col">
-                                <div onClick={(e) => !msg.isUnsent && toggleActionMenu(e, currentMsgId)} className={`p-3 rounded-2xl text-sm ${isMyMsg ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-100 rounded-tl-none'} shadow-md cursor-pointer`}>
-                                  {renderMessageContent(msg)}
-                                </div>
-                                {!msg.isUnsent && (
-                                  <div className={`flex items-center mt-1 text-[9px] text-slate-500 font-medium ${isMyMsg ? 'justify-end' : 'justify-start'}`}>
-                                    <span>{msg.time}</span>
-                                    {isMyMsg && renderTickIndicator(msg)}
-                                  </div>
-                                )}
-                              </div>
+                              <div className="flex flex-col relative group pb-1"> {/* pb-1 দিয়ে মাউসের জন্য একটা ব্রিজ তৈরি করা হয়েছে */}
+  
+  {/* 🎭 ১. ফ্লেক্সিবল কুইক রিঅ্যাকশন বার (স্মুথ হভার ও অটো-পজিশন সহ) */}
+  {!msg.isUnsent && (
+    <div className={`absolute z-50 flex items-center gap-1.5 p-1.5 bg-slate-900 border border-slate-700 rounded-full shadow-2xl 
+      opacity-0 scale-95 pointer-events-none 
+      group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto 
+      transition-all duration-200 ease-out
+      /* 🪄 এখানে ম্যাজিক: মেসেজ স্ক্রিনের উপরে থাকলে নিচে নামবে, নিচে থাকলে উপরে উঠবে */
+      ${dropdownPosition === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'} 
+      ${isMyMsg ? 'right-0' : 'left-0'}`}
+      /* 🛠️ মাউস যেন রিঅ্যাকশন বারে থাকা অবস্থায় মেনু ক্লোজ না হয় তার জন্য সেফটি গার্ড */
+      style={{ transformOrigin: dropdownPosition === 'top' ? 'bottom' : 'top' }}
+    >
+      {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+        <button 
+          key={emoji} 
+          type="button"
+          onClick={(e) => { 
+            e.stopPropagation(); 
+            handleMessageReaction(currentMsgId, emoji); 
+          }} 
+          className="hover:scale-130 active:scale-95 transition-transform text-sm px-1 cursor-pointer"
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
+  )}
+
+  {/* 🎯 ২. মেসেজ বাবল */}
+  <div 
+    onClick={(e) => !msg.isUnsent && toggleActionMenu(e, currentMsgId)} 
+    className={`p-3 rounded-2xl text-sm ${isMyMsg ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-100 rounded-tl-none'} shadow-md cursor-pointer relative`}
+  >
+    {renderMessageContent(msg)}
+    
+    {/* 🔴 অলরেডি দেওয়া রিঅ্যাকশন বাবল */}
+    {msg.reaction && (
+      <div className={`absolute -bottom-2.5 ${isMyMsg ? 'left-3' : 'right-3'} bg-slate-700 border border-slate-600 rounded-full px-1.5 py-0.5 text-[11px] shadow-md select-none z-10`}>
+        {msg.reaction}
+      </div>
+    )}
+  </div>
+  
+  {/* 🕒 ৩. টাইম ও টিক ইন্ডিকেটর */}
+  {!msg.isUnsent && (
+    <div className={`flex items-center mt-1 text-[9px] text-slate-500 font-medium ${isMyMsg ? 'justify-end' : 'justify-start'} ${msg.reaction ? 'pt-1.5' : ''}`}>
+      <span>{msg.time}</span>
+      {isMyMsg && renderTickIndicator(msg)}
+    </div>
+  )}
+</div>
                             )}
                             <AnimatePresence>
                               {isMenuOpen && !isEditingThis && (
