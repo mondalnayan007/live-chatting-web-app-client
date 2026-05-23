@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Send, LogOut, Bell, Loader2, ShieldUser, X, Camera, MessageSquare, ArrowLeft, Smile, Search, SmilePlus, Film, MoreVertical, Ban, Paperclip, Trash2, Edit3, Check, Settings, ShieldAlert, Key, HelpCircle } from 'lucide-react';
+import { User, Send, LogOut, X, Camera, MessageSquare, ArrowLeft, Smile, Search, MoreVertical, Ban, Paperclip, Trash2, Edit3, Check, Settings, ShieldAlert, Key } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
+import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 
 const SERVER_URL = "https://live-chatting-web-app-server.onrender.com";
+const GOOGLE_CLIENT_ID = "550936863221-hnd1i9amld9vsijieom0g3nm414g4h8p.apps.googleusercontent.com";
 
 const isoCountries = ["Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan", "Bangladesh", "Belarus", "Belgium", "Brazil", "Canada", "China", "Denmark", "Egypt", "France", "Germany", "India", "Indonesia", "Italy", "Japan", "Malaysia", "Mexico", "Nepal", "Netherlands", "New Zealand", "Pakistan", "Philippines", "Russia", "Saudi Arabia", "Singapore", "Spain", "Sweden", "Switzerland", "Thailand", "Turkey", "UAE", "UK", "USA", "Vietnam"];
 
@@ -32,11 +34,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('emoji');
   const [allBlocks, setAllBlocks] = useState({}); 
 
-  const [gifSearch, setGifSearch] = useState('');
   const [gifs, setGifs] = useState([]);
+  const [gifSearch, setGifSearch] = useState('');
   const [loadingGifs, setLoadingGifs] = useState(false);
   
-  // লগইন ফর্ম ডেটা (ডিফল্টভাবে isGuest: true রাখা হয়েছে)
   const [formData, setFormData] = useState({ name: '', age: '', country: 'Bangladesh', gender: 'Male', profilePic: '', isGuest: true });
   const [isHydrating, setIsHydrating] = useState(true);
   const [profileUser, setProfileUser] = useState(null);
@@ -56,7 +57,6 @@ export default function App() {
   const [editText, setEditText] = useState('');
   const [showBlockPopup, setShowBlockPopup] = useState(false);
 
-  // চ্যাট হিস্ট্রি স্টেট (এখন প্রথম লোড ডাটাবেজ থেকে হবে, ব্যাকআপ হিসেবে লোকালস্টোরেজ থাকবে)
   const [chatHistory, setChatHistory] = useState(() => {
     try {
       const savedChats = localStorage.getItem('global_chat_history_final');
@@ -87,14 +87,17 @@ export default function App() {
     localStorage.setItem('global_unread_counts', JSON.stringify(unreadCounts));
   }, [unreadCounts]);
 
+  // চ্যাট পার্টনার সিলেক্ট হওয়ার ওয়াচ-ইফেক্ট
   useEffect(() => {
     selectedUserRef.current = selectedUser;
     if (selectedUser) {
       setUnreadCounts(prev => ({ ...prev, [selectedUser.name]: 0 }));
       sessionStorage.setItem('active_chat_partner', JSON.stringify(selectedUser));
-      
       if (socketRef.current && socketRef.current.connected) {
         socketRef.current.emit('chat_opened_or_seen', { fromName: user.name, toSocketId: selectedUser.id });
+        
+        // 🛠️ [এখানে যুক্ত করা হলো]: নতুন চ্যাট পার্টনার সিলেক্ট হলেই ডাটাবেজ থেকে ওল্ড হিস্ট্রি চেয়ে পাঠানো হবে
+        socketRef.current.emit('get_chat_history', { sender: user.name, receiver: selectedUser.name });
       }
     }
     setActiveMenuMsgId(null); 
@@ -108,9 +111,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (selectedUser) {
-      scrollToBottom();
-    }
+    if (selectedUser) scrollToBottom();
   }, [chatHistory]);
 
   useEffect(() => {
@@ -159,13 +160,14 @@ export default function App() {
     return () => clearTimeout(delayDebounce);
   }, [gifSearch, showPicker, activeTab]);
 
+
+  // 🌟 [সকেটের মূল বড় USEEFFECT ব্লকটি নিচে সাজানো হলো] 🌟
   useEffect(() => {
     if (!user) {
       setIsHydrating(false);
       return;
     }
 
-    // সকেট কানেকশন অপটিমাইজেশন (Blinking সমস্যা মুক্ত)
     socketRef.current = io(SERVER_URL, { 
       transient: true,
       reconnection: true,
@@ -175,23 +177,56 @@ export default function App() {
     
     const socket = socketRef.current;
 
-    socket.on('connect', () => {
-      socket.emit('join_directory', user);
+   socket.on('connect', () => {
+      // Storage session sync update
+      const savedUser = sessionStorage.getItem('chat_user');
+      const currentUser = savedUser ? JSON.parse(savedUser) : user;
+      
+      if (currentUser) {
+        socket.emit('join_directory', currentUser);
+      }
       setIsHydrating(false);
+
+      // Re-fetch database messages history right after refresh handshake
+      if (selectedUserRef.current && currentUser) {
+        socket.emit('get_chat_history', { 
+          sender: currentUser.name.trim(), 
+          receiver: selectedUserRef.current.name.trim() 
+        });
+      }
     });
 
-    // মঙ্গোডিবি থেকে আসা সম্পূর্ণ পুরোনো চ্যাট হিস্ট্রি লোড করার ইভেন্ট
+    // 🛠️ [এখানে যুক্ত করা হলো]: ডাটাবেজ থেকে ওল্ড চ্যাট হিস্ট্রি প্রপারলি চ্যাটবক্সে রেন্ডার করার লিসেনার
+    // 1. Database theke old history load er listener
+    socket.on('load_chat_history', (dbHistory) => {
+      if (!selectedUserRef.current) return;
+      
+      const formattedHistory = dbHistory.map(msg => ({
+        id: msg.msgId,
+        // Name 'You' ba Sender name set kora
+        sender: msg.senderName === user.name ? 'You' : msg.senderName,
+        text: msg.message, // Ekhane image base64 ba text thakbe
+        type: msg.senderName === user.name ? 'outgoing' : 'incoming',
+        fileType: msg.fileType || 'text',
+        time: msg.timestamp 
+      }));
+
+      setChatHistory(prev => ({
+        ...prev,
+        [selectedUserRef.current.name]: formattedHistory
+      }));
+    });
+
+  // 2. Local storage load listener block (Filter bad dewa hoyeche)
     socket.on('load_chat_history_from_db', (dbHistory) => {
       setChatHistory(prev => {
         const mergedHistory = { ...prev, ...dbHistory };
         try {
-          // ইমেজ বাদে শুধু টেক্সট মেসেজগুলো ফিল্টার করে লোকালস্টোরেজে সেভ রাখা (কোটা এরর এড়াতে)
-          const cleanStorageHistory = {};
-          Object.keys(mergedHistory).forEach(partner => {
-            cleanStorageHistory[partner] = mergedHistory[partner].filter(msg => msg.fileType === 'text' && !msg.text.startsWith('[GIF]: '));
-          });
-          localStorage.setItem('global_chat_history_final', JSON.stringify(cleanStorageHistory));
-        } catch (e) { console.warn("Storage Quota error handled."); }
+          // ⚠️ Kono rokom text filter chara ekhane local storage sync hobe
+          localStorage.setItem('global_chat_history_final', JSON.stringify(mergedHistory));
+        } catch (e) {
+          console.error("Local storage limit exceed for large base64 image strings");
+        }
         return mergedHistory;
       });
     });
@@ -199,28 +234,21 @@ export default function App() {
     socket.on('update_directory', (users) => {
       const currentFilteredUsers = users.filter(u => u.name !== user.name);
       setActiveUsers(currentFilteredUsers);
-      
       if (selectedUserRef.current) {
         const fresh = currentFilteredUsers.find(u => u.name === selectedUserRef.current.name);
         if (fresh) setSelectedUser(fresh);
       }
     });
 
-    socket.on('sync_global_blocks', (blocksData) => {
-      setAllBlocks(blocksData || {});
-    });
-
-    socket.on('receive_typing_status', ({ senderName, isTyping }) => {
-      setTypingUsers(prev => ({ ...prev, [senderName]: isTyping }));
-    });
+    socket.on('sync_global_blocks', (blocksData) => { setAllBlocks(blocksData || {}); });
+    socket.on('receive_typing_status', ({ senderName, isTyping }) => { setTypingUsers(prev => ({ ...prev, [senderName]: isTyping })); });
 
     socket.on('partner_marked_seen', ({ fromName }) => {
       if (selectedUserRef.current && selectedUserRef.current.name === fromName) {
         setChatHistory(prev => {
           const userChat = prev[fromName] || [];
           const updatedChat = userChat.map(msg => msg.type === 'outgoing' ? { ...msg, status: 'seen' } : msg);
-          const updated = { ...prev, [fromName]: updatedChat };
-          return updated;
+          return { ...prev, [fromName]: updatedChat };
         });
       }
     });
@@ -234,27 +262,20 @@ export default function App() {
 
         const newMsg = { id: msgId, sender: senderName, text: message, type: 'incoming', fileType: fileType || 'text', time: timestamp };
         const updatedChat = [...userHistory, newMsg];
-        const updated = { ...prev, [senderName]: updatedChat };
         
-        // ইমেজ বাদে শুধু টেক্সট লোকালস্টোরেজে যাবে
-        if (fileType === 'text' && !message.startsWith('[GIF]: ')) {
+        // 🛠️ এখানে 'fileType === text' এর শর্তটি তুলে দেওয়া হলো যাতে ইমেজও লোকাল স্টোরেজে সেভ হয়
+        if (!message.startsWith('[GIF]: ')) {
           try {
             const currentStored = JSON.parse(localStorage.getItem('global_chat_history_final') || '{}');
             currentStored[senderName] = [...(currentStored[senderName] || []), newMsg];
             localStorage.setItem('global_chat_history_final', JSON.stringify(currentStored));
           } catch(e) {}
         }
-        return updated;
+        return { ...prev, [senderName]: updatedChat };
       });
 
       const isChatWindowOpen = selectedUserRef.current && selectedUserRef.current.name === senderName;
-      
-      socket.emit('message_delivery_ack', { 
-        toSocketId: fromSocketId, 
-        fromName: user.name, 
-        msgId, 
-        isSeen: isChatWindowOpen 
-      });
+      socket.emit('message_delivery_ack', { toSocketId: fromSocketId, fromName: user.name, msgId, isSeen: isChatWindowOpen });
 
       if (!isChatWindowOpen) {
         setUnreadCounts(prev => ({ ...prev, [senderName]: (prev[senderName] || 0) + 1 }));
@@ -288,15 +309,15 @@ export default function App() {
       });
     });
 
-    return () => {
-      socket.disconnect();
-    };
+    return () => { socket.disconnect(); };
   }, [user]);
+
+  
+  
 
   const handleBlockToggle = () => {
     if (!selectedUser) return;
-    const blockingStatus = amIBlockingHim(selectedUser.name);
-    if (blockingStatus) {
+    if (amIBlockingHim(selectedUser.name)) {
       socketRef.current.emit('unblock_user_global', { blockerName: user.name, blockedName: selectedUser.name });
       toast.success(`Unblocked ${selectedUser.name}`);
     } else {
@@ -318,9 +339,17 @@ export default function App() {
   const handleFileShare = (e) => {
     const file = e.target.files[0];
     if (!file || !selectedUser) return;
-    if (amIBlockingHim(selectedUser.name) || isHeBlockingMe(selectedUser.name)) {
-      return toast.error("Action restricted by Block status!");
+    
+    // 🛠️ ২৫ এমবি (25MB) ফাইল সাইজ চেক করার লজিক যুক্ত করা হলো
+    const MAX_FILE_SIZE = 25 * 1024 * 1024; // ২৫ এমবি বাইটসে
+    if (file.size > MAX_FILE_SIZE) {
+      alert("⚠️ You cannot upload files larger than 25MB!");
+      e.target.value = ""; // ইনপুট ফিল্ডটি খালি করে দেওয়া হলো
+      return; // ফাংশন এখানেই স্টপ হয়ে যাবে, ফাইল আপলোড হবে না
     }
+
+    if (amIBlockingHim(selectedUser.name) || isHeBlockingMe(selectedUser.name)) return toast.error("Action restricted!");
+    
     let fileType = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : null;
     if (!fileType) return alert("Only images and videos are supported.");
 
@@ -329,32 +358,52 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  const handleLogin = async (e) => {
+  const handleGuestLogin = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.age) return;
+    if (!formData.name.trim() || !formData.age) return toast.error("Name and Age are required!");
     if (!acceptedTermsLogin) return toast.error("Please accept the Terms & Conditions.");
+    executeLoginAPI({ ...formData, isGuest: true });
+  };
 
+  const handleGoogleLoginSuccess = async (credentialResponse) => {
+    if (!formData.age) return toast.error("Please fill your Age, Country, Gender first, then click Google Login!");
+    if (!acceptedTermsLogin) return toast.error("Please accept the Terms & Conditions.");
+    
     try {
-      // ব্যাকএন্ড এপিআই-তে এখন পুরো অবজেক্টসহ (isGuest সহ) পাঠানো হচ্ছে
+      const base64Url = credentialResponse.credential.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+      const googleUser = JSON.parse(jsonPayload);
+
+      const permanentUserData = {
+        name: googleUser.name.replace(/\s+/g, '').slice(0, 10) + Math.floor(100 + Math.random() * 900), 
+        age: formData.age,
+        country: formData.country,
+        gender: formData.gender,
+        profilePic: googleUser.picture,
+        isGuest: false
+      };
+
+      executeLoginAPI(permanentUserData);
+    } catch (err) {
+      toast.error("Google Auth Decode Failed!");
+    }
+  };
+
+  const executeLoginAPI = async (payloadData) => {
+    try {
       const response = await fetch(`${SERVER_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name.trim(),
-          age: formData.age,
-          country: formData.country,
-          gender: formData.gender,
-          profilePic: formData.profilePic || (formData.gender === 'Female' ? 'ICON_FEMALE' : 'ICON_MALE'),
-          isGuest: formData.isGuest
-        })
+        body: JSON.stringify(payloadData)
       });
       const data = await response.json();
       if (!response.ok) return toast.error(data.message);
 
-      const userData = data.user || { ...formData, name: formData.name.trim(), profilePic: formData.profilePic || (formData.gender === 'Female' ? 'ICON_FEMALE' : 'ICON_MALE') };
-      
-      sessionStorage.setItem('chat_user', JSON.stringify(userData));
-      setUser(userData);
+      const finalUser = data.user || payloadData;
+      sessionStorage.setItem('chat_user', JSON.stringify(finalUser));
+      setUser(finalUser);
+      toast.success(finalUser.isGuest ? "Logged in as Guest! 🕵️" : "Verified with Google permanently! 🔒");
     } catch (error) {
       toast.error("Backend Server is Offline!");
     }
@@ -364,39 +413,40 @@ export default function App() {
     e.preventDefault();
     if (!message.trim() || !selectedUser) return;
     if (amIBlockingHim(selectedUser.name)) return toast.error("You have blocked this user!");
-    if (isHeBlockingMe(selectedUser.name)) return toast.error("You cannot send messages to this user.");
+    if (isHeBlockingMe(selectedUser.name)) return toast.error("You cannot send messages.");
     executeSendMessage(message, 'text');
   };
 
   const executeSendMessage = (textToSend, fileType = 'text') => {
     if (!selectedUser || !socketRef.current) return;
-    
     const currentTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const uniqueMsgId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
+    // 🛠️ সকেটের মাধ্যমে ব্যাকএন্ড এবং ডাটাবেজে টেক্সট/ইমেজ পাঠানোর সঠিক অবজেক্ট
     socketRef.current.emit('send_private_message', { 
       toSocketId: selectedUser.id, 
-      message: textToSend, 
+      message: textToSend, // টেক্সট বা ইমেজের বেস৬৪ ডাটা—উভয়ই এই ভেরিয়েবলে থাকে
       msgId: uniqueMsgId, 
-      fileType,
-      timestamp: currentTimeStr
+      fileType, 
+      timestamp: currentTimeStr,
+      senderName: user.name,       
+      receiverName: selectedUser.name 
     });
 
     setChatHistory(prev => {
       const newMsg = { id: uniqueMsgId, sender: 'You', text: textToSend, type: 'outgoing', fileType, time: currentTimeStr, status: 'sent' };
       const updatedChat = [...(prev[selectedUser.name] || []), newMsg];
-      const updated = { ...prev, [selectedUser.name]: updatedChat };
       
-      // লোকালস্টোরেজ কোটা প্রটেকশন
-      if (fileType === 'text' && !textToSend.startsWith('[GIF]: ')) {
+      if (!textToSend.startsWith('[GIF]: ')) {
         try {
           const currentStored = JSON.parse(localStorage.getItem('global_chat_history_final') || '{}');
           currentStored[selectedUser.name] = [...(currentStored[selectedUser.name] || []), newMsg];
           localStorage.setItem('global_chat_history_final', JSON.stringify(currentStored));
         } catch (e) {}
       }
-      return updated;
+      return { ...prev, [selectedUser.name]: updatedChat };
     });
+    
     if (fileType === 'text') setMessage('');
     setShowPicker(false);
   };
@@ -411,10 +461,7 @@ export default function App() {
   };
 
   const handleRemoveForMe = (msgId) => {
-    setChatHistory(prev => {
-      const updatedChat = (prev[selectedUser.name] || []).filter(msg => msg.id !== msgId);
-      return { ...prev, [selectedUser.name]: updatedChat };
-    });
+    setChatHistory(prev => { return { ...prev, [selectedUser.name]: (prev[selectedUser.name] || []).filter(msg => msg.id !== msgId) }; });
     setActiveMenuMsgId(null);
   };
 
@@ -464,295 +511,311 @@ export default function App() {
     return <span className="text-slate-600 font-medium text-[11px] ml-1">✓</span>;
   };
 
-  if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white"><Loader2 className="animate-spin" /></div>;
-
+if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white"><MessageSquare className="animate-spin text-blue-500" size={32} /></div>;
   return (
-    <div className="h-screen w-screen bg-slate-950 text-white flex relative overflow-hidden fixed inset-0 overscroll-none select-none">
-      <Toaster position="top-center" containerStyle={{ zIndex: 99999 }} />
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <div className="h-screen w-screen bg-slate-950 text-white flex relative overflow-hidden fixed inset-0 overscroll-none select-none">
+        <Toaster position="top-center" containerStyle={{ zIndex: 99999 }} />
 
-      {!user ? (
-        /* --- LOGIN PANEL --- */
-        <div className="absolute inset-0 bg-slate-900 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-800 p-8 rounded-2xl w-full max-w-md border border-slate-700">
-            <h2 className="text-2xl font-bold text-center mb-6">Create Your Anonymous Profile</h2>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="flex flex-col items-center mb-4">
-                <div className="relative cursor-pointer">
-                  <div className="w-20 h-20 rounded-full bg-slate-700 border-2 border-dashed border-slate-500 flex items-center justify-center overflow-hidden">
-                    {formData.profilePic ? <img src={formData.profilePic} className="w-full h-full object-cover" alt="preview" /> : <Camera className="text-slate-500" size={24} />}
+        {!user ? (
+          <div className="absolute inset-0 bg-slate-900 flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-800 p-8 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl">
+              <h2 className="text-2xl font-bold text-center mb-1">Welcome to Chat Channel</h2>
+              <p className="text-xs text-slate-400 text-center mb-6">Choose how you want to join the channel</p>
+              
+              <form onSubmit={handleGuestLogin} className="space-y-4">
+                <div className="flex flex-col items-center mb-2">
+                  <div className="relative cursor-pointer">
+                    <div className="w-20 h-20 rounded-full bg-slate-700 border-2 border-dashed border-slate-500 flex items-center justify-center overflow-hidden">
+                      {formData.profilePic ? <img src={formData.profilePic} className="w-full h-full object-cover" alt="preview" /> : <Camera className="text-slate-500" size={24} />}
+                    </div>
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
                   </div>
-                  <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                  <p className="text-[10px] text-slate-500 mt-1">(Avatar optional for guest)</p>
                 </div>
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 uppercase font-bold">Nickname</label>
-                <input type="text" required className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white" onChange={e => setFormData({...formData, name: e.target.value})} />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+
                 <div>
-                  <label className="text-xs text-slate-400 uppercase font-bold">Age</label>
-                  <input type="number" required className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white" onChange={e => setFormData({...formData, age: e.target.value})} />
+                  <label className="text-xs text-slate-400 uppercase font-bold">Nickname <span className="text-red-400">*</span></label>
+                  <input type="text" placeholder="e.g. JohnDeo" className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white text-sm" onChange={e => setFormData({...formData, name: e.target.value})} />
                 </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-slate-400 uppercase font-bold">Age <span className="text-red-400">*</span></label>
+                    <input type="number" placeholder="Required" className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white text-sm" onChange={e => setFormData({...formData, age: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 uppercase font-bold">Gender</label>
+                    <select className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white text-sm" onChange={e => setFormData({...formData, gender: e.target.value})}>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="text-xs text-slate-400 uppercase font-bold">Gender</label>
-                  <select className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white" onChange={e => setFormData({...formData, gender: e.target.value})}>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
+                  <label className="text-xs text-slate-400 uppercase font-bold">Country</label>
+                  <select value={formData.country} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white text-sm" onChange={e => setFormData({...formData, country: e.target.value})}>
+                    {isoCountries.map((c, i) => <option key={i} value={c}>{c}</option>)}
                   </select>
                 </div>
+
+                <div className="flex items-start gap-2.5 pt-1">
+                  <input type="checkbox" id="terms" checked={acceptedTermsLogin} onChange={(e) => setAcceptedTermsLogin(e.target.checked)} className="w-4 h-4 rounded bg-slate-700 cursor-pointer" />
+                  <label htmlFor="terms" className="text-xs text-slate-300">I agree to <span onClick={() => setShowTermsPopup(true)} className="text-blue-400 underline cursor-pointer font-semibold">Terms & Conditions</span></label>
+                </div>
+
+                <div className="space-y-3 pt-2">
+                  <button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 py-3 rounded-xl font-bold text-sm tracking-wide shadow-lg transition active:scale-95">
+                    Login as Guest (Temporary)
+                  </button>
+
+                  <div className="flex items-center justify-center gap-2 my-2 text-slate-500 text-xs">
+                    <span className="h-[1px] w-full bg-slate-700" />
+                    <span>OR</span>
+                    <span className="h-[1px] w-full bg-slate-700" />
+                  </div>
+
+                  <div className="w-full flex justify-center overflow-hidden custom-google-login">
+                    <GoogleLogin 
+                      onSuccess={handleGoogleLoginSuccess}
+                      onError={() => toast.error("Google Login Failed!")}
+                      theme="dark"
+                      size="large"
+                      width="384px"
+                      shape="pill"
+                    />
+                  </div>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        ) : (
+          <>
+            <div className={`w-full md:w-1/3 border-r border-slate-800 flex flex-col bg-slate-900 h-full ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
+              <div className="p-4 border-b border-slate-800 flex justify-between items-center shrink-0">
+                <button onClick={() => setProfileUser(user)} className="flex items-center gap-3 p-1 rounded-xl text-left hover:bg-slate-800">
+                  {renderAvatar(user, "w-9 h-9")}
+                  <div>
+                    <p className="text-xs font-bold leading-none flex items-center gap-1">
+                      {user.name}
+                      {user.isGuest ? (
+                        <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 rounded">Guest</span>
+                      ) : (
+                        <span className="text-[8px] bg-green-500/10 text-green-400 border border-green-500/20 px-1 rounded">Pro</span>
+                      )}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-1">View Profile</p>
+                  </div>
+                </button>
+                <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 p-2"><LogOut size={20} /></button>
               </div>
-              <div>
-                <label className="text-xs text-slate-400 uppercase font-bold">Country</label>
-                <select value={formData.country} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white" onChange={e => setFormData({...formData, country: e.target.value})}>
+
+              <div className="p-3 bg-slate-950/40 border-b border-slate-800 grid grid-cols-2 gap-2 shrink-0">
+                <select value={genderFilter} onChange={(e) => setGenderFilter(e.target.value)} className="bg-slate-800 border border-slate-700 text-xs rounded-lg p-2 text-white">
+                  <option value="All">All Genders</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                </select>
+                <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)} className="bg-slate-800 border border-slate-700 text-xs rounded-lg p-2 text-white">
+                  <option value="All">All Countries</option>
                   {isoCountries.map((c, i) => <option key={i} value={c}>{c}</option>)}
                 </select>
               </div>
-              <div className="flex items-start gap-2.5 pt-2">
-                <input type="checkbox" id="terms" checked={acceptedTermsLogin} onChange={(e) => setAcceptedTermsLogin(e.target.checked)} className="w-4 h-4 rounded bg-slate-700 cursor-pointer" />
-                <label htmlFor="terms" className="text-xs text-slate-300">I agree to <span onClick={() => setShowTermsPopup(true)} className="text-blue-400 underline cursor-pointer font-semibold">Terms & Conditions</span></label>
-              </div>
-              <button type="submit" className="w-full bg-blue-600 py-3 rounded-lg font-bold">Join Directory</button>
-            </form>
-          </motion.div>
-        </div>
-      ) : (
-        /* --- MAIN DASHBOARD INTERFACE --- */
-        <>
-          <div className={`w-full md:w-1/3 border-r border-slate-800 flex flex-col bg-slate-900 h-full ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
-            <div className="p-4 border-b border-slate-800 flex justify-between items-center shrink-0">
-              <button onClick={() => setProfileUser(user)} className="flex items-center gap-3 p-1 rounded-xl text-left hover:bg-slate-800">
-                {renderAvatar(user, "w-9 h-9")}
-                <div><p className="text-xs font-bold leading-none">My Profile</p><p className="text-[10px] text-slate-500 mt-1">{user.name}</p></div>
-              </button>
-              <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 p-2"><LogOut size={20} /></button>
-            </div>
 
-            <div className="p-3 bg-slate-950/40 border-b border-slate-800 grid grid-cols-2 gap-2 shrink-0">
-              <select value={genderFilter} onChange={(e) => setGenderFilter(e.target.value)} className="bg-slate-800 border border-slate-700 text-xs rounded-lg p-2 text-white">
-                <option value="All">All Genders</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-              </select>
-              <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)} className="bg-slate-800 border border-slate-700 text-xs rounded-lg p-2 text-white">
-                <option value="All">All Countries</option>
-                {isoCountries.map((c, i) => <option key={i} value={c}>{c}</option>)}
-              </select>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
-              {activeUsers.filter(u => (genderFilter === 'All' || u.gender === genderFilter) && (countryFilter === 'All' || u.country === countryFilter)).map(u => {
-                const count = unreadCounts[u.name] || 0;
-                const userIsTyping = typingUsers[u.name] || false;
-                const blockedMe = isHeBlockingMe(u.name);
-
-                return (
-                  <div key={u.id} onClick={() => setSelectedUser(u)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition ${selectedUser?.name === u.name ? 'bg-blue-600/20 border border-blue-500' : 'bg-slate-800/50 hover:bg-slate-800'}`}>
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div onClick={(e) => { e.stopPropagation(); setProfileUser(u); }} className="shrink-0">{renderAvatar(u, "w-10 h-10")}</div>
-                      <div className="min-w-0 flex-1">
-                        <h3 className="text-sm font-medium truncate flex items-center gap-1.5">
-                          {u.name}
-                          {amIBlockingHim(u.name) && <span className="text-[10px] bg-red-600/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30">Blocked</span>}
-                        </h3>
-                        {userIsTyping && !blockedMe ? (
-                          <p className="text-[11px] text-green-400 font-medium animate-pulse">typing...</p>
-                        ) : (
-                          <p className="text-[10px] text-slate-500 truncate">{u.country} • {u.gender}</p>
-                        )}
-                      </div>
-                    </div>
-                    {count > 0 && <div className="bg-red-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shadow-lg animate-pulse">{count}</div>}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="p-3 border-t border-slate-800 bg-slate-950/40 relative shrink-0" ref={settingsMenuRef}>
-              <div className="flex items-center justify-between">
-                <button onClick={() => setShowSettingsMenu(!showSettingsMenu)} className="flex items-center gap-3 p-2 rounded-xl text-slate-400 hover:text-white transition text-sm">
-                  <Settings size={18} />
-                  <span>Settings Panel</span>
-                </button>
-                <div className="text-[10px] text-slate-500 font-medium select-none">Made with ❤️ by <span className="text-slate-400 font-semibold">NAYAN</span></div>
-              </div>
-              <AnimatePresence>
-                {showSettingsMenu && (
-                  <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute bottom-14 left-3 right-3 bg-slate-800 border border-slate-700 rounded-xl p-1.5 z-50 flex flex-col">
-                    <button type="button" onClick={() => toast('Security Active.', { icon: '🔒' })} className="w-full text-left text-xs p-2 text-slate-300 hover:bg-slate-700 rounded-lg flex items-center gap-2"><Key size={14}/> Verification</button>
-                    <button type="button" onClick={() => { setShowTermsPopup(true); setShowSettingsMenu(false); }} className="w-full text-left text-xs p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg flex items-center gap-2"><ShieldAlert size={14}/> Terms & Conditions</button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-
-          <div className={`fixed inset-0 md:relative w-full md:w-2/3 flex flex-col bg-slate-950 z-40 md:z-auto ${selectedUser ? 'flex' : 'hidden md:flex'}`}>
-            {selectedUser ? (
-              <>
-                <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 backdrop-blur-md shrink-0 sticky top-0 z-50">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-800 border border-slate-700 rounded-xl md:hidden text-slate-300"><ArrowLeft size={18} /></button>
-                    <div className="flex items-center gap-3 cursor-pointer min-w-0" onClick={() => setProfileUser(selectedUser)}>
-                      {renderAvatar(selectedUser, "w-10 h-10")}
-                      <div className="min-w-0">
-                        <h2 className="font-bold leading-none text-white truncate text-sm sm:text-base">{selectedUser.name}</h2>
-                        {typingUsers[selectedUser.name] && !isHeBlockingMe(selectedUser.name) ? (
-                          <p className="text-[10px] text-green-400 font-semibold uppercase mt-1 animate-pulse">Typing...</p>
-                        ) : (
-                          <p className="text-[10px] text-green-500 font-medium uppercase mt-1">Active Now</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="relative">
-                    <button type="button" onClick={() => setShowBlockPopup(!showBlockPopup)} className="p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 hover:text-white transition"><MoreVertical size={18} /></button>
-                    <AnimatePresence>
-                      {showBlockPopup && (
-                        <>
-                          <div className="fixed inset-0 z-40" onClick={() => setShowBlockPopup(false)} />
-                          <motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -5 }} className="absolute right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl p-1.5 z-50 shadow-xl min-w-[140px]">
-                            <button type="button" onClick={() => { handleBlockToggle(); setShowBlockPopup(false); }} className={`w-full text-left text-xs p-2.5 rounded-lg flex items-center gap-2 font-medium transition ${amIBlockingHim(selectedUser.name) ? 'text-green-400 hover:bg-green-500/10' : 'text-red-400 hover:bg-red-500/10'}`}><Ban size={14} /><span>{amIBlockingHim(selectedUser.name) ? 'Unblock User' : 'Block User'}</span></button>
-                          </motion.div>
-                        </>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0 bg-slate-950">
-                  {(chatHistory[selectedUser.name] || []).map((msg, idx) => {
-                    const isMyMsg = msg.type === 'outgoing';
-                    const currentMsgId = msg.id || `fallback-${idx}`;
-                    const isEditingThis = editingMsgId === currentMsgId;
-                    const isMenuOpen = activeMenuMsgId === currentMsgId;
-
-                    return (
-                      <div key={currentMsgId} className={`flex w-full items-end gap-1.5 msg-action-container ${isMyMsg ? 'justify-end' : 'justify-start'}`}>
-                        {!isMyMsg && !msg.isUnsent && (
-                          <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300 md:opacity-100 order-1"><MoreVertical size={14} /></button>
-                        )}
-
-                        <div className={`relative max-w-[75%] group flex flex-col ${isMyMsg ? 'items-end' : 'items-start'}`}>
-                          {isEditingThis ? (
-                            <div className="bg-slate-800 border border-slate-700 p-1.5 rounded-xl flex items-center gap-1.5">
-                              <input type="text" value={editText} onChange={(e) => setEditText(e.target.value)} className="bg-slate-900 text-xs p-1.5 rounded-lg outline-none text-white" />
-                              <button onClick={() => handleEditSubmit(currentMsgId)} className="p-1 bg-green-600 rounded text-white"><Check size={12} /></button>
-                              <button onClick={() => setEditingMsgId(null)} className="p-1 bg-slate-700 rounded text-slate-300"><X size={12} /></button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col">
-                              <div onClick={(e) => !msg.isUnsent && toggleActionMenu(e, currentMsgId)} className={`p-3 rounded-2xl text-sm ${isMyMsg ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-100 rounded-tl-none'} shadow-md cursor-pointer`}>
-                                {renderMessageContent(msg)}
-                              </div>
-                              {!msg.isUnsent && (
-                                <div className={`flex items-center mt-1 text-[9px] text-slate-500 font-medium ${isMyMsg ? 'justify-end' : 'justify-start'}`}>
-                                  <span>{msg.time}</span>
-                                  {isMyMsg && renderTickIndicator(msg)}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          <AnimatePresence>
-                            {isMenuOpen && !isEditingThis && (
-                              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className={`absolute bg-slate-900 border border-slate-700 rounded-xl p-1 z-50 flex flex-col min-w-[130px] ${isMyMsg ? 'right-0' : 'left-0'} ${dropdownPosition === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'}`}>
-                                {isMyMsg && (!msg.fileType || msg.fileType === 'text') && <button onClick={() => { setEditingMsgId(currentMsgId); setEditText(msg.text); setActiveMenuMsgId(null); }} className="flex items-center gap-2 text-xs p-2 text-slate-300 hover:bg-slate-700 rounded-lg"><Edit3 size={12} /> Edit</button>}
-                                {isMyMsg && <button onClick={() => handleUnsendForEveryone(currentMsgId)} className="flex items-center gap-2 text-xs p-2 text-red-400 hover:bg-red-500/10 rounded-lg"><Ban size={12} /> Unsend</button>}
-                                <button onClick={() => handleRemoveForMe(currentMsgId)} className="flex items-center gap-2 text-xs p-2 text-slate-400 hover:bg-slate-700 rounded-lg"><Trash2 size={12} /> Remove</button>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
+              <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
+                {activeUsers.filter(u => (genderFilter === 'All' || u.gender === genderFilter) && (countryFilter === 'All' || u.country === countryFilter)).map(u => {
+                  const count = unreadCounts[u.name] || 0;
+                  const userIsTyping = typingUsers[u.name] || false;
+                  return (
+                    <div key={u.id} onClick={() => setSelectedUser(u)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition ${selectedUser?.name === u.name ? 'bg-blue-600/20 border border-blue-500' : 'bg-slate-800/50 hover:bg-slate-800'}`}>
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div onClick={(e) => { e.stopPropagation(); setProfileUser(u); }} className="shrink-0">{renderAvatar(u, "w-10 h-10")}</div>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-sm font-medium truncate flex items-center gap-1.5">
+                            {u.name}
+                            {amIBlockingHim(u.name) && <span className="text-[10px] bg-red-600/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30">Blocked</span>}
+                          </h3>
+                          {userIsTyping && !isHeBlockingMe(u.name) ? <p className="text-[11px] text-green-400 font-medium animate-pulse">typing...</p> : <p className="text-[10px] text-slate-500 truncate">{u.country} • {u.gender}</p>}
                         </div>
-
-                        {isMyMsg && !msg.isUnsent && (
-                          <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300"><MoreVertical size={14} /></button>
-                        )}
                       </div>
-                    );
-                  })}
-                  <div ref={messagesEndRef} />
-                </div>
+                      {count > 0 && <div className="bg-red-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shadow-lg animate-pulse">{count}</div>}
+                    </div>
+                  );
+                })}
+              </div>
 
-                <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900 shrink-0 relative z-30" ref={popupRef}>
-                  {amIBlockingHim(selectedUser.name) ? (
-                    <div className="bg-red-950/40 border border-red-900/50 p-3 rounded-xl text-center text-xs text-red-400 font-medium">You have blocked this profile. Unblock to chat.</div>
-                  ) : isHeBlockingMe(selectedUser.name) ? (
-                    <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center text-xs text-slate-500 font-medium">Sending restricted. You can no longer reply to this conversation.</div>
-                  ) : (
-                    <>
+              <div className="p-3 border-t border-slate-800 bg-slate-950/40 relative shrink-0" ref={settingsMenuRef}>
+                <div className="flex items-center justify-between">
+                  <button onClick={() => setShowSettingsMenu(!showSettingsMenu)} className="flex items-center gap-3 p-2 rounded-xl text-slate-400 hover:text-white transition text-sm">
+                    <Settings size={18} />
+                    <span>Settings Panel</span>
+                  </button>
+                  <div className="text-[10px] text-slate-500 font-medium select-none">Made with ❤️ by <span className="text-slate-400 font-semibold">NAYAN</span></div>
+                </div>
+                <AnimatePresence>
+                  {showSettingsMenu && (
+                    <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute bottom-14 left-3 right-3 bg-slate-800 border border-slate-700 rounded-xl p-1.5 z-50 flex flex-col">
+                      <button type="button" onClick={() => toast('Security Active.', { icon: '🔒' })} className="w-full text-left text-xs p-2 text-slate-300 hover:bg-slate-700 rounded-lg flex items-center gap-2"><Key size={14}/> Verification</button>
+                      <button type="button" onClick={() => { setShowTermsPopup(true); setShowSettingsMenu(false); }} className="w-full text-left text-xs p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg flex items-center gap-2"><ShieldAlert size={14}/> Terms & Conditions</button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            <div className={`fixed inset-0 md:relative w-full md:w-2/3 flex flex-col bg-slate-950 z-40 md:z-auto ${selectedUser ? 'flex text-slate-200' : 'hidden md:flex'}`}>
+              {selectedUser ? (
+                <>
+                  <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 backdrop-blur-md shrink-0 sticky top-0 z-50">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-800 border border-slate-700 rounded-xl md:hidden text-slate-300"><ArrowLeft size={18} /></button>
+                      <div className="flex items-center gap-3 cursor-pointer min-w-0" onClick={() => setProfileUser(selectedUser)}>
+                        {renderAvatar(selectedUser, "w-10 h-10")}
+                        <div className="min-w-0">
+                          <h2 className="font-bold leading-none text-white truncate text-sm sm:text-base">{selectedUser.name}</h2>
+                          {typingUsers[selectedUser.name] && !isHeBlockingMe(selectedUser.name) ? <p className="text-[10px] text-green-400 font-semibold uppercase mt-1 animate-pulse">Typing...</p> : <p className="text-[10px] text-green-500 font-medium uppercase mt-1">Active Now</p>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <button type="button" onClick={() => setShowBlockPopup(!showBlockPopup)} className="p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 hover:text-white transition"><MoreVertical size={18} /></button>
                       <AnimatePresence>
-                        {showPicker && (
-                          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="absolute bottom-20 left-2 right-2 sm:left-4 z-50 rounded-2xl bg-slate-800 border border-slate-700 max-w-[310px] flex flex-col overflow-hidden shadow-2xl">
-                            <div className="flex bg-slate-900 p-1.5 border-b border-slate-700">
-                              <button type="button" onClick={() => setActiveTab('emoji')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl ${activeTab === 'emoji' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Emojis</button>
-                              <button type="button" onClick={() => setActiveTab('gif')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl ${activeTab === 'gif' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>GIFs</button>
-                            </div>
-                            <div className="p-2 bg-slate-800">
-                              {activeTab === 'emoji' && <EmojiPicker onEmojiClick={onEmojiClick} theme={Theme.DARK} width="100%" height={230} skinTonesDisabled searchDisabled />}
-                              {activeTab === 'gif' && (
-                                <div>
-                                  <div className="flex items-center gap-2 bg-slate-900 rounded-xl p-2 mb-2"><Search size={14} /><input type="text" placeholder="Search GIFs..." value={gifSearch} onChange={(e) => setGifSearch(e.target.value)} className="bg-transparent text-xs outline-none w-full" /></div>
-                                  <div className="grid grid-cols-2 gap-2 max-h-[180px] overflow-y-auto">{gifs.map((url, i) => <img key={i} src={url} alt="gif" onClick={() => handleGifSelect(url)} className="w-full h-16 object-cover rounded-lg cursor-pointer" />)}</div>
-                                </div>
-                              )}
-                            </div>
-                          </motion.div>
+                        {showBlockPopup && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setShowBlockPopup(false)} />
+                            <motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -5 }} className="absolute right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl p-1.5 z-50 shadow-xl min-w-[140px]">
+                              <button type="button" onClick={() => { handleBlockToggle(); setShowBlockPopup(false); }} className={`w-full text-left text-xs p-2.5 rounded-lg flex items-center gap-2 font-medium transition ${amIBlockingHim(selectedUser.name) ? 'text-green-400 hover:bg-green-500/10' : 'text-red-400 hover:bg-red-500/10'}`}><Ban size={14} /><span>{amIBlockingHim(selectedUser.name) ? 'Unblock User' : 'Block User'}</span></button>
+                            </motion.div>
+                          </>
                         )}
                       </AnimatePresence>
+                    </div>
+                  </div>
 
-                      <input type="file" ref={fileInputRef} onChange={handleFileShare} accept="image/*,video/*" className="hidden" />
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0 bg-slate-950">
+                    {(chatHistory[selectedUser.name] || []).map((msg, idx) => {
+                      const isMyMsg = msg.type === 'outgoing';
+                      const currentMsgId = msg.id || `fallback-${idx}`;
+                      const isEditingThis = editingMsgId === currentMsgId;
+                      const isMenuOpen = activeMenuMsgId === currentMsgId;
 
-                      <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
-                        <button type="button" onClick={() => setShowPicker(!showPicker)} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400"><Smile size={18}/></button>
-                        <button type="button" onClick={() => fileInputRef.current.click()} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400"><Paperclip size={18}/></button>
-                        <input type="text" value={message} onChange={handleInputChange} placeholder="Type a message..." className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white focus:border-blue-500" />
-                        <button type="submit" className="p-3 bg-blue-600 text-white rounded-xl"><Send size={16}/></button>
-                      </form>
-                    </>
-                  )}
+                      return (
+                        <div key={currentMsgId} className={`flex w-full items-end gap-1.5 msg-action-container ${isMyMsg ? 'justify-end' : 'justify-start'}`}>
+                          {!isMyMsg && !msg.isUnsent && <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300 md:opacity-100 order-1"><MoreVertical size={14} /></button>}
+                          <div className={`relative max-w-[75%] group flex flex-col ${isMyMsg ? 'items-end' : 'items-start'}`}>
+                            {isEditingThis ? (
+                              <div className="bg-slate-800 border border-slate-700 p-1.5 rounded-xl flex items-center gap-1.5">
+                                <input type="text" value={editText} onChange={(e) => setEditText(e.target.value)} className="bg-slate-900 text-xs p-1.5 rounded-lg outline-none text-white" />
+                                <button onClick={() => handleEditSubmit(currentMsgId)} className="p-1 bg-green-600 rounded text-white"><Check size={12} /></button>
+                                <button onClick={() => setEditingMsgId(null)} className="p-1 bg-slate-700 rounded text-slate-300"><X size={12} /></button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col">
+                                <div onClick={(e) => !msg.isUnsent && toggleActionMenu(e, currentMsgId)} className={`p-3 rounded-2xl text-sm ${isMyMsg ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-100 rounded-tl-none'} shadow-md cursor-pointer`}>
+                                  {renderMessageContent(msg)}
+                                </div>
+                                {!msg.isUnsent && (
+                                  <div className={`flex items-center mt-1 text-[9px] text-slate-500 font-medium ${isMyMsg ? 'justify-end' : 'justify-start'}`}>
+                                    <span>{msg.time}</span>
+                                    {isMyMsg && renderTickIndicator(msg)}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <AnimatePresence>
+                              {isMenuOpen && !isEditingThis && (
+                                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className={`absolute bg-slate-900 border border-slate-700 rounded-xl p-1 z-50 flex flex-col min-w-[130px] ${isMyMsg ? 'right-0' : 'left-0'} ${dropdownPosition === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'}`}>
+                                  {isMyMsg && (!msg.fileType || msg.fileType === 'text') && <button onClick={() => { setEditingMsgId(currentMsgId); setEditText(msg.text); setActiveMenuMsgId(null); }} className="flex items-center gap-2 text-xs p-2 text-slate-300 hover:bg-slate-700 rounded-lg"><Edit3 size={12} /> Edit</button>}
+                                  {isMyMsg && <button onClick={() => handleUnsendForEveryone(currentMsgId)} className="flex items-center gap-2 text-xs p-2 text-red-400 hover:bg-red-500/10 rounded-lg"><Ban size={12} /> Unsend</button>}
+                                  <button onClick={() => handleRemoveForMe(currentMsgId)} className="flex items-center gap-2 text-xs p-2 text-slate-400 hover:bg-slate-700 rounded-lg"><Trash2 size={12} /> Remove</button>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                          {isMyMsg && !msg.isUnsent && <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300"><MoreVertical size={14} /></button>}
+                        </div>
+                      );
+                    })}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900 shrink-0 relative z-30" ref={popupRef}>
+                    {amIBlockingHim(selectedUser.name) ? (
+                      <div className="bg-red-950/40 border border-red-900/50 p-3 rounded-xl text-center text-xs text-red-400 font-medium">You have blocked this profile. Unblock to chat.</div>
+                    ) : isHeBlockingMe(selectedUser.name) ? (
+                      <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center text-xs text-slate-500 font-medium">Sending restricted. You can no longer reply to this conversation.</div>
+                    ) : (
+                      <>
+                        <AnimatePresence>
+                          {showPicker && (
+                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="absolute bottom-20 left-2 right-2 sm:left-4 z-50 rounded-2xl bg-slate-800 border border-slate-700 max-w-[310px] flex flex-col overflow-hidden shadow-2xl">
+                              <div className="flex bg-slate-900 p-1.5 border-b border-slate-700">
+                                <button type="button" onClick={() => setActiveTab('emoji')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl ${activeTab === 'emoji' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Emojis</button>
+                                <button type="button" onClick={() => setActiveTab('gif')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl ${activeTab === 'gif' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>GIFs</button>
+                              </div>
+                              <div className="p-2 bg-slate-800">
+                                {activeTab === 'emoji' && <EmojiPicker onEmojiClick={onEmojiClick} theme={Theme.DARK} width="100%" height={230} skinTonesDisabled searchDisabled />}
+                                {activeTab === 'gif' && (
+                                  <div>
+                                    <div className="flex items-center gap-2 bg-slate-900 rounded-xl p-2 mb-2"><Search size={14} /><input type="text" placeholder="Search GIFs..." value={gifSearch} onChange={(e) => setGifSearch(e.target.value)} className="bg-transparent text-xs outline-none w-full" /></div>
+                                    <div className="grid grid-cols-2 gap-2 max-h-[180px] overflow-y-auto">{gifs.map((url, i) => <img key={i} src={url} alt="gif" onClick={() => handleGifSelect(url)} className="w-full h-16 object-cover rounded-lg cursor-pointer" />)}</div>
+                                  </div>
+                                )}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        <input type="file" ref={fileInputRef} onChange={handleFileShare} accept="image/*,video/*" className="hidden" />
+                        <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
+                          <button type="button" onClick={() => setShowPicker(!showPicker)} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400"><Smile size={18}/></button>
+                          <button type="button" onClick={() => fileInputRef.current.click()} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400"><Paperclip size={18}/></button>
+                          <input type="text" value={message} onChange={handleInputChange} placeholder="Type a message..." className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white focus:border-blue-500" />
+                          <button type="submit" className="p-3 bg-blue-600 text-white rounded-xl"><Send size={16}/></button>
+                        </form>
+                      </>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-slate-950">
+                  <div className="max-w-md p-8 bg-slate-900/40 border border-slate-800 rounded-3xl flex flex-col items-center">
+                    <MessageSquare size={32} className="text-blue-400 mb-4" />
+                    <h2 className="text-xl font-bold mb-2">Hello, {user.name}! 👋</h2>
+                    <p className="text-xs text-slate-400">Select an active profile from the directory to start messaging.</p>
+                  </div>
                 </div>
-              </>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-slate-950">
-                <div className="max-w-md p-8 bg-slate-900/40 border border-slate-800 rounded-3xl flex flex-col items-center">
-                  <MessageSquare size={32} className="text-blue-400 mb-4" />
-                  <h2 className="text-xl font-bold mb-2">Hello, {user.name}! 👋</h2>
-                  <p className="text-xs text-slate-400">Select an active profile from the directory to start messaging.</p>
-                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        <AnimatePresence>
+          {showTermsPopup && (
+            <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[999999] flex items-center justify-center p-4">
+              <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-2xl p-6">
+                <h3 className="font-bold text-sm mb-2">Terms & Conditions</h3>
+                <p className="text-xs text-slate-400 mb-4">By interacting with this anonymous channel, you agree to follow absolute end-to-end community messaging compliance policies.</p>
+                <button type="button" onClick={() => { setAcceptedTermsLogin(true); setShowTermsPopup(false); }} className="w-full bg-blue-600 py-2.5 rounded-xl text-xs font-semibold">Accept & Close</button>
               </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* T&C Modal */}
-      <AnimatePresence>
-        {showTermsPopup && (
-          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[999999] flex items-center justify-center p-4">
-            <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-2xl p-6">
-              <h3 className="font-bold text-sm mb-2">Terms & Conditions</h3>
-              <p className="text-xs text-slate-400 mb-4">By interacting with this anonymous channel, you agree to follow absolute end-to-end community messaging compliance policies.</p>
-              <button type="button" onClick={() => { setAcceptedTermsLogin(true); setShowTermsPopup(false); }} className="w-full bg-blue-600 py-2.5 rounded-xl text-xs font-semibold">Accept & Close</button>
             </div>
-          </div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>
 
-      {/* Profile Viewer */}
-      <AnimatePresence>
-        {profileUser && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
-            <div className="bg-slate-800 border border-slate-700 w-full max-w-sm rounded-2xl overflow-hidden text-center pb-8 relative">
-              <button onClick={() => setProfileUser(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X size={18}/></button>
-              <div className="h-20 bg-gradient-to-r from-blue-600 to-indigo-700"></div>
-              <div className="flex justify-center -mt-10 mb-3">{renderAvatar(profileUser, "w-20 h-20")}</div>
-              <h2 className="text-lg font-bold">{profileUser.name}</h2>
-              <p className="text-xs text-blue-400">{profileUser.gender} • {profileUser.age} Yrs • {profileUser.country}</p>
+        <AnimatePresence>
+          {profileUser && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
+              <div className="bg-slate-800 border border-slate-700 w-full max-w-sm rounded-2xl overflow-hidden text-center pb-8 relative">
+                <button onClick={() => setProfileUser(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X size={18}/></button>
+                <div className="h-20 bg-gradient-to-r from-blue-600 to-indigo-700"></div>
+                <div className="flex justify-center -mt-10 mb-3">{renderAvatar(profileUser, "w-20 h-20")}</div>
+                <h2 className="text-lg font-bold">{profileUser.name}</h2>
+                <p className="text-xs text-blue-400">{profileUser.gender} • {profileUser.age} Yrs • {profileUser.country}</p>
+              </div>
             </div>
-          </div>
-        )}
-      </AnimatePresence>
-    </div>
+          )}
+        </AnimatePresence>
+      </div>
+    </GoogleOAuthProvider>
   );
 }
