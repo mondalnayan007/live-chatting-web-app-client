@@ -461,34 +461,43 @@ export default function App() {
     executeSendMessage(message, 'text');
   };
 
-  const executeSendMessage = (textToSend, fileType = 'text') => {
+const executeSendMessage = (textToSend, fileType = 'text') => {
     if (!selectedUser || !socketRef.current) return;
     const currentTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const uniqueMsgId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
+    // 🎯 [ফিক্স ১]: যদি চ্যাট পার্টনার AI হয়, তবে রিসিভার নেম ডাটাবেজের সাথে মিলিয়ে ফিক্সড করা হলো
+    const isAi = selectedUser.id === 'ai_agent';
+    const finalReceiverName = isAi ? '🤖 Chat-AI Bot' : selectedUser.name;
+
     // 🛠️ সকেটের মাধ্যমে ব্যাকএন্ড এবং ডাটাবেজে টেক্সট/ইমেজ পাঠানোর সঠিক অবজেক্ট
     socketRef.current.emit('send_private_message', { 
       toSocketId: selectedUser.id, 
-      message: textToSend, // টেক্সট বা ইমেজের বেস৬৪ ডাটা—উভয়ই এই ভেরিয়েবলে থাকে
+      message: textToSend, // টেক্সট বা ইমেজের বেস৬৪ ডাটা—উভয়ই এই ভেরিয়েবলে থাকে
       msgId: uniqueMsgId, 
       fileType, 
       timestamp: currentTimeStr,
       senderName: user.name,       
-      receiverName: selectedUser.name 
+      receiverName: finalReceiverName // ফিক্সড নাম পাঠানো হচ্ছে
     });
+
+    // 🎯 [ফিক্স ২]: চ্যাট হিস্ট্রি এবং লোকাল স্টোরেজের অবজেক্ট কী (Key) হ্যান্ডেল করা
+    const chatKey = isAi ? '🤖 Chat-AI Bot' : selectedUser.name;
 
     setChatHistory(prev => {
       const newMsg = { id: uniqueMsgId, sender: 'You', text: textToSend, type: 'outgoing', fileType, time: currentTimeStr, status: 'sent' };
-      const updatedChat = [...(prev[selectedUser.name] || []), newMsg];
+      
+      // selectedUser.name এর বদলে ফিক্সড chatKey ব্যবহার করা হলো
+      const updatedChat = [...(prev[chatKey] || []), newMsg];
       
       if (!textToSend.startsWith('[GIF]: ')) {
         try {
           const currentStored = JSON.parse(localStorage.getItem('global_chat_history_final') || '{}');
-          currentStored[selectedUser.name] = [...(currentStored[selectedUser.name] || []), newMsg];
+          currentStored[chatKey] = [...(currentStored[chatKey] || []), newMsg];
           localStorage.setItem('global_chat_history_final', JSON.stringify(currentStored));
         } catch (e) {}
       }
-      return { ...prev, [selectedUser.name]: updatedChat };
+      return { ...prev, [chatKey]: updatedChat };
     });
     
     if (fileType === 'text') setMessage('');
