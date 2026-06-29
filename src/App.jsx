@@ -548,94 +548,128 @@ export default function App() {
   const onEmojiClick = (emojiData) => setMessage(prev => prev + emojiData.emoji);
   const handleLogout = () => { sessionStorage.clear(); localStorage.clear(); window.location.reload(); };
 
-  const renderAvatar = (targetUser, sizeClass = "w-10 h-10") => {
-    if (!targetUser) return <div className={`${sizeClass} rounded-full bg-slate-700 animate-pulse`} />;
-    if (targetUser.profilePic && targetUser.profilePic !== 'ICON_MALE' && targetUser.profilePic !== 'ICON_FEMALE') {
-      return <img src={targetUser.profilePic} className={`${sizeClass} rounded-full object-cover border border-slate-700`} alt="avatar" />;
-    }
+
+  const renderAvatar = (targetUser, sizeClass = "w-10 h-10", isActive = false) => {
+    if (!targetUser) return <div className={`${sizeClass} rounded-full bg-slate-800 animate-pulse`} />;
     const isFemale = targetUser.profilePic === 'ICON_FEMALE' || targetUser.gender === 'Female';
-    return <div className={`${sizeClass} rounded-full flex items-center justify-center border ${isFemale ? "bg-pink-600/30 text-pink-400 border-pink-500/40" : "bg-blue-600/30 text-blue-400 border-blue-500/40"} p-1.5`}><User className="w-full h-full" /></div>;
+    const isCustomPic = targetUser.profilePic && targetUser.profilePic !== 'ICON_MALE' && targetUser.profilePic !== 'ICON_FEMALE';
+    
+    return (
+      <div className="relative shrink-0 select-none">
+        {isCustomPic ? (
+          <img src={targetUser.profilePic} className={`${sizeClass} rounded-full object-cover border border-slate-800 shadow-md`} alt="avatar" />
+        ) : (
+          <div className={`${sizeClass} rounded-full flex items-center justify-center border ${isFemale ? "bg-pink-500/10 text-pink-400 border-pink-500/20" : "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"} p-1.5 shadow-md`}>
+            <User className="w-full h-full" />
+          </div>
+        )}
+        {isActive && (
+          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border border-slate-950 rounded-full status-indicator-glow animate-pulse" />
+        )}
+      </div>
+    );
   };
 
   const renderMessageContent = (msg) => {
-    if (msg.isUnsent) return <p className="italic text-slate-500 text-xs">{msg.text}</p>;
-    if (msg.fileType === 'image') return <img src={msg.text} alt="Shared" className="rounded-xl max-w-[200px]" />;
-    if (msg.fileType === 'video') return <video src={msg.text} controls className="rounded-xl max-w-[200px]" />;
-    if (msg.text.startsWith('[GIF]: ')) return <img src={msg.text.replace('[GIF]: ', '')} alt="gif" className="rounded-xl max-w-[180px]" />;
-    return <div><p className="break-all">{msg.text}</p>{msg.isEdited && <span className="text-[9px] text-blue-300 block text-right">(edited)</span>}</div>;
+    if (msg.isUnsent) return <p className="italic text-slate-500 text-xs flex items-center gap-1.5"><Ban size={12} /> {msg.text}</p>;
+    if (msg.fileType === 'image') return <img src={msg.text} alt="Shared" className="rounded-xl max-w-[240px] border border-slate-800 shadow-md cursor-zoom-in hover:scale-102 transition duration-200" />;
+    if (msg.fileType === 'video') return <video src={msg.text} controls className="rounded-xl max-w-[240px] border border-slate-800 shadow-md" />;
+    if (msg.text.startsWith('[GIF]: ')) return <img src={msg.text.replace('[GIF]: ', '')} alt="gif" className="rounded-xl max-w-[200px] border border-slate-850 shadow-md" />;
+    return <div><p className="break-words leading-relaxed whitespace-pre-wrap">{msg.text}</p>{msg.isEdited && <span className="text-[8px] text-indigo-300 block text-right mt-1 opacity-70">(edited)</span>}</div>;
   };
 
   const renderTickIndicator = (msg) => {
-    if (msg.status === 'seen') return <span className="text-cyan-400 font-extrabold text-[11px] ml-1">✓✓</span>;
-    if (msg.status === 'delivered') return <span className="text-slate-500 font-bold text-[11px] ml-1">✓✓</span>;
+    if (msg.status === 'seen') return <span className="text-emerald-400 font-extrabold text-[11px] ml-1">✓✓</span>;
+    if (msg.status === 'delivered') return <span className="text-slate-400 font-bold text-[11px] ml-1">✓✓</span>;
     return <span className="text-slate-600 font-medium text-[11px] ml-1">✓</span>;
   };
 
-if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white"><MessageSquare className="animate-spin text-blue-500" size={32} /></div>;
+  if (isHydrating) {
+    return (
+      <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center text-white relative overflow-hidden">
+        <div className="bg-glow-orb-1"></div>
+        <div className="bg-glow-orb-2"></div>
+        <div className="relative z-10 flex flex-col items-center gap-4 animate-pulse">
+          <div className="w-16 h-16 rounded-3xl glass-panel flex items-center justify-center shadow-indigo-500/20 shadow-2xl border border-indigo-500/30">
+            <MessageSquare className="text-indigo-400 animate-bounce" size={32} />
+          </div>
+          <h1 className="text-sm font-bold tracking-wider uppercase bg-gradient-to-r from-indigo-200 to-slate-200 bg-clip-text text-transparent">Initializing AuraChat</h1>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-      <div className="h-screen w-screen bg-slate-950 text-white flex relative overflow-hidden fixed inset-0 overscroll-none select-none">
+      <div className="h-screen w-screen bg-slate-950 text-slate-100 flex relative overflow-hidden fixed inset-0 overscroll-none select-none font-sans">
+        {/* Global background glow elements */}
+        <div className="bg-glow-orb-1" />
+        <div className="bg-glow-orb-2" />
+
         <Toaster position="top-center" containerStyle={{ zIndex: 99999 }} />
 
         {!user ? (
-          <div className="absolute inset-0 bg-slate-900 flex items-center justify-center p-4 z-50 overflow-y-auto">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-800 p-8 rounded-2xl w-full max-w-md border border-slate-700 shadow-2xl">
-              <h2 className="text-2xl font-bold text-center mb-1">Welcome to Chat Channel</h2>
+          <div className="absolute inset-0 bg-slate-950 flex items-center justify-center p-4 z-50 overflow-y-auto w-full h-full">
+            <div className="bg-glow-orb-1" />
+            <div className="bg-glow-orb-2" />
+            
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="glass-panel p-8 rounded-3xl w-full max-w-md border border-slate-800 shadow-2xl relative z-10 backdrop-blur-xl">
+              <h2 className="text-2xl font-extrabold text-center mb-1 bg-gradient-to-r from-indigo-200 via-slate-100 to-indigo-100 bg-clip-text text-transparent">Welcome to AuraChat</h2>
               <p className="text-xs text-slate-400 text-center mb-6">Choose how you want to join the channel</p>
               
               <form onSubmit={handleGuestLogin} className="space-y-4">
-                <div className="flex flex-col items-center mb-2">
-                  <div className="relative cursor-pointer">
-                    <div className="w-20 h-20 rounded-full bg-slate-700 border-2 border-dashed border-slate-500 flex items-center justify-center overflow-hidden">
-                      {formData.profilePic ? <img src={formData.profilePic} className="w-full h-full object-cover" alt="preview" /> : <Camera className="text-slate-500" size={24} />}
+                <div className="flex flex-col items-center mb-4">
+                  <div className="relative cursor-pointer group">
+                    <div className="w-20 h-20 rounded-full glass-panel border-2 border-dashed border-slate-700 flex items-center justify-center overflow-hidden transition duration-300 group-hover:border-indigo-500/50">
+                      {formData.profilePic ? <img src={formData.profilePic} className="w-full h-full object-cover" alt="preview" /> : <Camera className="text-slate-500 group-hover:text-indigo-400 transition" size={24} />}
                     </div>
                     <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-1">(Avatar optional for guest)</p>
+                  <p className="text-[10px] text-slate-500 mt-2 font-medium">(Avatar optional for guest)</p>
                 </div>
 
                 <div>
-                  <label className="text-xs text-slate-400 uppercase font-bold">Nickname <span className="text-red-400">*</span></label>
-                  <input type="text" placeholder="e.g. JohnDeo" className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white text-sm" onChange={e => setFormData({...formData, name: e.target.value})} />
+                  <label className="text-xs text-slate-400 uppercase font-bold tracking-wide">Nickname <span className="text-rose-500">*</span></label>
+                  <input type="text" placeholder="e.g. JohnDeo" className="w-full glass-input rounded-xl p-3 mt-1.5 outline-none text-white text-sm focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20" onChange={e => setFormData({...formData, name: e.target.value})} />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs text-slate-400 uppercase font-bold">Age <span className="text-red-400">*</span></label>
-                    <input type="number" placeholder="Required" className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white text-sm" onChange={e => setFormData({...formData, age: e.target.value})} />
+                    <label className="text-xs text-slate-400 uppercase font-bold tracking-wide">Age <span className="text-rose-500">*</span></label>
+                    <input type="number" placeholder="Required" className="w-full glass-input rounded-xl p-3 mt-1.5 outline-none text-white text-sm focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20" onChange={e => setFormData({...formData, age: e.target.value})} />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 uppercase font-bold">Gender</label>
-                    <select className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white text-sm" onChange={e => setFormData({...formData, gender: e.target.value})}>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
+                    <label className="text-xs text-slate-400 uppercase font-bold tracking-wide">Gender</label>
+                    <select className="w-full glass-input rounded-xl p-3 mt-1.5 outline-none text-white text-sm focus:border-indigo-500/50 cursor-pointer" onChange={e => setFormData({...formData, gender: e.target.value})}>
+                      <option value="Male" className="bg-slate-900">Male</option>
+                      <option value="Female" className="bg-slate-900">Female</option>
                     </select>
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 uppercase font-bold">Country</label>
-                  <select value={formData.country} className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 mt-1 outline-none text-white text-sm" onChange={e => setFormData({...formData, country: e.target.value})}>
-                    {isoCountries.map((c, i) => <option key={i} value={c}>{c}</option>)}
+                  <label className="text-xs text-slate-400 uppercase font-bold tracking-wide">Country</label>
+                  <select value={formData.country} className="w-full glass-input rounded-xl p-3 mt-1.5 outline-none text-white text-sm focus:border-indigo-500/50 cursor-pointer" onChange={e => setFormData({...formData, country: e.target.value})}>
+                    {isoCountries.map((c, i) => <option key={i} value={c} className="bg-slate-900">{c}</option>)}
                   </select>
                 </div>
 
-                <div className="flex items-start gap-2.5 pt-1">
-                  <input type="checkbox" id="terms" checked={acceptedTermsLogin} onChange={(e) => setAcceptedTermsLogin(e.target.checked)} className="w-4 h-4 rounded bg-slate-700 cursor-pointer" />
-                  <label htmlFor="terms" className="text-xs text-slate-300">I agree to <span onClick={() => setShowTermsPopup(true)} className="text-blue-400 underline cursor-pointer font-semibold">Terms & Conditions</span></label>
+                <div className="flex items-start gap-2.5 pt-2">
+                  <input type="checkbox" id="terms" checked={acceptedTermsLogin} onChange={(e) => setAcceptedTermsLogin(e.target.checked)} className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-900 cursor-pointer mt-0.5" />
+                  <label htmlFor="terms" className="text-xs text-slate-300 select-none">I agree to the <span onClick={() => setShowTermsPopup(true)} className="text-indigo-400 hover:text-indigo-300 underline cursor-pointer font-semibold transition">Terms & Conditions</span></label>
                 </div>
 
-                <div className="space-y-3 pt-2">
-                  <button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 py-3 rounded-xl font-bold text-sm tracking-wide shadow-lg transition active:scale-95">
+                <div className="space-y-4 pt-2">
+                  <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 py-3 rounded-xl font-bold text-sm tracking-wide shadow-lg shadow-indigo-950/50 transition duration-150 active:scale-95 text-white cursor-pointer">
                     Login as Guest (Temporary)
                   </button>
 
-                  <div className="flex items-center justify-center gap-2 my-2 text-slate-500 text-xs">
-                    <span className="h-[1px] w-full bg-slate-700" />
-                    <span>OR</span>
-                    <span className="h-[1px] w-full bg-slate-700" />
+                  <div className="flex items-center justify-center gap-3 my-2 text-slate-500 text-xs">
+                    <span className="h-[1px] w-full bg-slate-800" />
+                    <span className="font-semibold tracking-wide">OR</span>
+                    <span className="h-[1px] w-full bg-slate-800" />
                   </div>
 
-                  <div className="w-full flex justify-center overflow-hidden custom-google-login">
+                  <div className="w-full flex justify-center overflow-hidden custom-google-login shadow-md rounded-xl">
                     <GoogleLogin 
                       onSuccess={handleGoogleLoginSuccess}
                       onError={() => toast.error("Google Login Failed!")}
@@ -651,100 +685,131 @@ if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center 
           </div>
         ) : (
           <>
-            <div className={`w-full md:w-1/3 border-r border-slate-800 flex flex-col bg-slate-900 h-full ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
-              <div className="p-4 border-b border-slate-800 flex justify-between items-center shrink-0">
-                <button onClick={() => setProfileUser(user)} className="flex items-center gap-3 p-1 rounded-xl text-left hover:bg-slate-800">
+            {/* Sidebar user directory list */}
+            <div className={`w-full md:w-[350px] lg:w-[380px] border-r border-slate-900/60 flex flex-col bg-slate-950/70 backdrop-blur-xl h-full relative z-20 shrink-0 ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
+              <div className="p-4 border-b border-slate-900/60 flex justify-between items-center shrink-0 bg-slate-900/20">
+                <button onClick={() => setProfileUser(user)} className="flex items-center gap-3 p-1.5 rounded-2xl text-left hover:bg-slate-800/40 transition duration-200 cursor-pointer">
                   {renderAvatar(user, "w-9 h-9")}
                   <div>
-                    <p className="text-xs font-bold leading-none flex items-center gap-1">
+                    <p className="text-xs font-bold leading-none flex items-center gap-1.5 text-slate-200">
                       {user.name}
                       {user.isGuest ? (
-                        <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 rounded">Guest</span>
+                        <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded font-semibold tracking-wider uppercase">Guest</span>
                       ) : (
-                        <span className="text-[8px] bg-green-500/10 text-green-400 border border-green-500/20 px-1 rounded">Pro</span>
+                        <span className="text-[8px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-1.5 py-0.5 rounded font-semibold tracking-wider uppercase">Pro</span>
                       )}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-1">View Profile</p>
+                    <p className="text-[9px] text-slate-400 mt-1">View Profile</p>
                   </div>
                 </button>
-                <button onClick={handleLogout} className="text-slate-500 hover:text-red-400 p-2"><LogOut size={20} /></button>
+                <button onClick={handleLogout} className="text-slate-400 hover:text-rose-400 p-2 hover:bg-rose-500/10 rounded-xl transition duration-200 cursor-pointer"><LogOut size={18} /></button>
               </div>
 
-              <div className="p-3 bg-slate-950/40 border-b border-slate-800 grid grid-cols-2 gap-2 shrink-0">
-                <select value={genderFilter} onChange={(e) => setGenderFilter(e.target.value)} className="bg-slate-800 border border-slate-700 text-xs rounded-lg p-2 text-white">
-                  <option value="All">All Genders</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                </select>
-                <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)} className="bg-slate-800 border border-slate-700 text-xs rounded-lg p-2 text-white">
-                  <option value="All">All Countries</option>
-                  {isoCountries.map((c, i) => <option key={i} value={c}>{c}</option>)}
-                </select>
+              <div className="p-3 bg-slate-950/20 border-b border-slate-900/60 grid grid-cols-2 gap-2 shrink-0">
+                <div className="relative">
+                  <select value={genderFilter} onChange={(e) => setGenderFilter(e.target.value)} className="w-full bg-slate-900/60 border border-slate-800 text-[11px] rounded-xl p-2.5 text-slate-200 outline-none focus:border-indigo-500/40 appearance-none cursor-pointer">
+                    <option value="All" className="bg-slate-900">All Genders</option>
+                    <option value="Male" className="bg-slate-900">Male</option>
+                    <option value="Female" className="bg-slate-900">Female</option>
+                  </select>
+                </div>
+                <div className="relative">
+                  <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)} className="w-full bg-slate-900/60 border border-slate-800 text-[11px] rounded-xl p-2.5 text-slate-200 outline-none focus:border-indigo-500/40 appearance-none cursor-pointer">
+                    <option value="All" className="bg-slate-900">All Countries</option>
+                    {isoCountries.map((c, i) => <option key={i} value={c} className="bg-slate-900">{c}</option>)}
+                  </select>
+                </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0">
+              <div className="flex-1 overflow-y-auto p-2.5 space-y-2 min-h-0">
                 {activeUsers.filter(u => (genderFilter === 'All' || u.gender === genderFilter) && (countryFilter === 'All' || u.country === countryFilter)).map(u => {
                   const count = unreadCounts[u.name] || 0;
                   const userIsTyping = typingUsers[u.name] || false;
+                  const isSelected = selectedUser?.name === u.name;
                   return (
-                    <div key={u.id} onClick={() => setSelectedUser(u)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition ${selectedUser?.name === u.name ? 'bg-blue-600/20 border border-blue-500' : 'bg-slate-800/50 hover:bg-slate-800'}`}>
+                    <div 
+                      key={u.id} 
+                      onClick={() => setSelectedUser(u)} 
+                      className={`p-3 rounded-2xl cursor-pointer flex items-center justify-between transition-all duration-300 border ${
+                        isSelected 
+                          ? 'bg-indigo-600/10 border-indigo-500/50 shadow-md shadow-indigo-950/20' 
+                          : 'bg-slate-900/15 border-slate-900/30 hover:bg-slate-800/15 hover:border-slate-800/40'
+                      }`}
+                    >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div onClick={(e) => { e.stopPropagation(); setProfileUser(u); }} className="shrink-0">{renderAvatar(u, "w-10 h-10")}</div>
+                        <div onClick={(e) => { e.stopPropagation(); setProfileUser(u); }} className="shrink-0">
+                          {renderAvatar(u, "w-10 h-10", true)}
+                        </div>
                         <div className="min-w-0 flex-1">
-                          <h3 className="text-sm font-medium truncate flex items-center gap-1.5">
+                          <h3 className="text-sm font-semibold truncate flex items-center gap-2 text-slate-200">
                             {u.name}
-                            {amIBlockingHim(u.name) && <span className="text-[10px] bg-red-600/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30">Blocked</span>}
+                            {amIBlockingHim(u.name) && (
+                              <span className="text-[9px] bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded border border-rose-500/20 font-medium">Blocked</span>
+                            )}
                           </h3>
-                          {userIsTyping && !isHeBlockingMe(u.name) ? <p className="text-[11px] text-green-400 font-medium animate-pulse">typing...</p> : <p className="text-[10px] text-slate-500 truncate">{u.country} • {u.gender}</p>}
+                          {userIsTyping && !isHeBlockingMe(u.name) ? (
+                            <p className="text-[11px] text-emerald-400 font-medium animate-pulse">typing...</p>
+                          ) : (
+                            <p className="text-[10px] text-slate-400 truncate">{u.country} • {u.gender}</p>
+                          )}
                         </div>
                       </div>
-                      {count > 0 && <div className="bg-red-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shadow-lg animate-pulse">{count}</div>}
+                      {count > 0 && (
+                        <div className="bg-gradient-to-r from-rose-500 to-pink-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shadow-lg shadow-rose-500/25 animate-pulse">
+                          {count}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
 
-              <div className="p-3 border-t border-slate-800 bg-slate-950/40 relative shrink-0" ref={settingsMenuRef}>
+              <div className="p-3.5 border-t border-slate-900/60 bg-slate-950/50 relative shrink-0" ref={settingsMenuRef}>
                 <div className="flex items-center justify-between">
-                  <button onClick={() => setShowSettingsMenu(!showSettingsMenu)} className="flex items-center gap-3 p-2 rounded-xl text-slate-400 hover:text-white transition text-sm">
-                    <Settings size={18} />
+                  <button onClick={() => setShowSettingsMenu(!showSettingsMenu)} className="flex items-center gap-2 p-2 rounded-xl text-slate-400 hover:text-slate-200 transition duration-200 text-xs hover:bg-slate-800/40 cursor-pointer">
+                    <Settings size={16} />
                     <span>Settings Panel</span>
                   </button>
                   <div className="text-[10px] text-slate-500 font-medium select-none">Made with ❤️ by <span className="text-slate-400 font-semibold">NAYAN</span></div>
                 </div>
                 <AnimatePresence>
                   {showSettingsMenu && (
-                    <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute bottom-14 left-3 right-3 bg-slate-800 border border-slate-700 rounded-xl p-1.5 z-50 flex flex-col">
-                      <button type="button" onClick={() => toast('Security Active.', { icon: '🔒' })} className="w-full text-left text-xs p-2 text-slate-300 hover:bg-slate-700 rounded-lg flex items-center gap-2"><Key size={14}/> Verification</button>
-                      <button type="button" onClick={() => { setShowTermsPopup(true); setShowSettingsMenu(false); }} className="w-full text-left text-xs p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg flex items-center gap-2"><ShieldAlert size={14}/> Terms & Conditions</button>
+                    <motion.div initial={{ opacity: 0, y: 5, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 5, scale: 0.98 }} className="absolute bottom-14 left-3 right-3 bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-xl p-1.5 z-50 flex flex-col shadow-2xl">
+                      <button type="button" onClick={() => toast('Security Active.', { icon: '🔒' })} className="w-full text-left text-xs p-2 text-slate-300 hover:bg-slate-800 rounded-lg flex items-center gap-2 transition duration-150 cursor-pointer"><Key size={14}/> Verification</button>
+                      <button type="button" onClick={() => { setShowTermsPopup(true); setShowSettingsMenu(false); }} className="w-full text-left text-xs p-2 text-indigo-400 hover:bg-indigo-500/10 rounded-lg flex items-center gap-2 transition duration-150 cursor-pointer"><ShieldAlert size={14}/> Terms & Conditions</button>
                     </motion.div>
                   )}
                 </AnimatePresence>
               </div>
             </div>
 
-            <div className={`fixed inset-0 md:relative w-full md:w-2/3 flex flex-col bg-slate-950 z-40 md:z-auto ${selectedUser ? 'flex text-slate-200' : 'hidden md:flex'}`}>
+            {/* Chat Workspace Area */}
+            <div className={`fixed inset-0 md:relative w-full md:w-[calc(100%-350px)] lg:w-[calc(100%-380px)] flex flex-col bg-slate-950/40 backdrop-blur-md z-40 md:z-auto ${selectedUser ? 'flex text-slate-200' : 'hidden md:flex'}`}>
               {selectedUser ? (
                 <>
-                  <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 backdrop-blur-md shrink-0 sticky top-0 z-50">
+                  <div className="p-4 border-b border-slate-900/60 flex items-center justify-between bg-slate-950/60 backdrop-blur-lg shrink-0 sticky top-0 z-50">
                     <div className="flex items-center gap-3 min-w-0">
-                      <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-800 border border-slate-700 rounded-xl md:hidden text-slate-300"><ArrowLeft size={18} /></button>
+                      <button onClick={() => setSelectedUser(null)} className="p-2 bg-slate-900/60 border border-slate-800 rounded-xl md:hidden text-slate-300 cursor-pointer"><ArrowLeft size={18} /></button>
                       <div className="flex items-center gap-3 cursor-pointer min-w-0" onClick={() => setProfileUser(selectedUser)}>
-                        {renderAvatar(selectedUser, "w-10 h-10")}
+                        {renderAvatar(selectedUser, "w-10 h-10", true)}
                         <div className="min-w-0">
-                          <h2 className="font-bold leading-none text-white truncate text-sm sm:text-base">{selectedUser.name}</h2>
-                          {typingUsers[selectedUser.name] && !isHeBlockingMe(selectedUser.name) ? <p className="text-[10px] text-green-400 font-semibold uppercase mt-1 animate-pulse">Typing...</p> : <p className="text-[10px] text-green-500 font-medium uppercase mt-1">Active Now</p>}
+                          <h2 className="font-bold leading-none text-slate-100 truncate text-sm sm:text-base">{selectedUser.name}</h2>
+                          {typingUsers[selectedUser.name] && !isHeBlockingMe(selectedUser.name) ? (
+                            <p className="text-[10px] text-emerald-400 font-semibold uppercase mt-1 animate-pulse tracking-wide">Typing...</p>
+                          ) : (
+                            <p className="text-[10px] text-emerald-500 font-medium uppercase mt-1 tracking-wide flex items-center gap-1"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full inline-block status-indicator-glow animate-pulse"></span>Active Now</p>
+                          )}
                         </div>
                       </div>
                     </div>
                     <div className="relative">
-                      <button type="button" onClick={() => setShowBlockPopup(!showBlockPopup)} className="p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-slate-400 hover:text-white transition"><MoreVertical size={18} /></button>
+                      <button type="button" onClick={() => setShowBlockPopup(!showBlockPopup)} className="p-2.5 bg-slate-900/60 border border-slate-800 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 transition duration-200 cursor-pointer"><MoreVertical size={18} /></button>
                       <AnimatePresence>
                         {showBlockPopup && (
                           <>
                             <div className="fixed inset-0 z-40" onClick={() => setShowBlockPopup(false)} />
-                            <motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -5 }} className="absolute right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl p-1.5 z-50 shadow-xl min-w-[140px]">
-                              <button type="button" onClick={() => { handleBlockToggle(); setShowBlockPopup(false); }} className={`w-full text-left text-xs p-2.5 rounded-lg flex items-center gap-2 font-medium transition ${amIBlockingHim(selectedUser.name) ? 'text-green-400 hover:bg-green-500/10' : 'text-red-400 hover:bg-red-500/10'}`}><Ban size={14} /><span>{amIBlockingHim(selectedUser.name) ? 'Unblock User' : 'Block User'}</span></button>
+                            <motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -5 }} className="absolute right-0 mt-2 bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-xl p-1.5 z-50 shadow-2xl min-w-[140px]">
+                              <button type="button" onClick={() => { handleBlockToggle(); setShowBlockPopup(false); }} className={`w-full text-left text-xs p-2.5 rounded-lg flex items-center gap-2 font-medium transition duration-150 cursor-pointer ${amIBlockingHim(selectedUser.name) ? 'text-emerald-400 hover:bg-emerald-500/10' : 'text-rose-400 hover:bg-rose-500/10'}`}><Ban size={14} /><span>{amIBlockingHim(selectedUser.name) ? 'Unblock User' : 'Block User'}</span></button>
                             </motion.div>
                           </>
                         )}
@@ -752,7 +817,7 @@ if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center 
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0 bg-slate-950">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4 relative min-h-0 bg-slate-950/20 scroll-smooth">
                     {(chatHistory[selectedUser.name] || []).map((msg, idx) => {
                       const isMyMsg = msg.type === 'outgoing';
                       const currentMsgId = msg.id || `fallback-${idx}`;
@@ -760,107 +825,114 @@ if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center 
                       const isMenuOpen = activeMenuMsgId === currentMsgId;
 
                       return (
-                        <div key={currentMsgId} className={`flex w-full items-end gap-1.5 msg-action-container ${isMyMsg ? 'justify-end' : 'justify-start'}`}>
-                          {!isMyMsg && !msg.isUnsent && <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300 md:opacity-100 order-1"><MoreVertical size={14} /></button>}
+                        <motion.div 
+                          key={currentMsgId} 
+                          initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          transition={{ duration: 0.2, ease: "easeOut" }}
+                          className={`flex w-full items-end gap-2 msg-action-container ${isMyMsg ? 'justify-end' : 'justify-start'}`}
+                        >
+                          {!isMyMsg && !msg.isUnsent && (
+                            <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300 md:opacity-100 order-1 transition duration-150 cursor-pointer"><MoreVertical size={14} /></button>
+                          )}
                           <div className={`relative max-w-[75%] group flex flex-col ${isMyMsg ? 'items-end' : 'items-start'}`}>
                             {isEditingThis ? (
-                              <div className="bg-slate-800 border border-slate-700 p-1.5 rounded-xl flex items-center gap-1.5">
-                                <input type="text" value={editText} onChange={(e) => setEditText(e.target.value)} className="bg-slate-900 text-xs p-1.5 rounded-lg outline-none text-white" />
-                                <button onClick={() => handleEditSubmit(currentMsgId)} className="p-1 bg-green-600 rounded text-white"><Check size={12} /></button>
-                                <button onClick={() => setEditingMsgId(null)} className="p-1 bg-slate-700 rounded text-slate-300"><X size={12} /></button>
+                              <div className="bg-slate-900 border border-slate-800 p-2 rounded-2xl flex items-center gap-2 shadow-2xl">
+                                <input type="text" value={editText} onChange={(e) => setEditText(e.target.value)} className="bg-slate-950 text-xs p-2 px-3 rounded-xl border border-slate-800 outline-none text-white w-full focus:border-indigo-500" />
+                                <button onClick={() => handleEditSubmit(currentMsgId)} className="p-1.5 bg-indigo-600 rounded-xl text-white hover:bg-indigo-500 transition duration-150 cursor-pointer"><Check size={12} /></button>
+                                <button onClick={() => setEditingMsgId(null)} className="p-1.5 bg-slate-800 rounded-xl text-slate-300 hover:bg-slate-700 transition duration-150 cursor-pointer"><X size={12} /></button>
                               </div>
                             ) : (
-                              <div className="flex flex-col relative group pb-1"> {/* pb-1 দিয়ে মাউসের জন্য একটা ব্রিজ তৈরি করা হয়েছে */}
-  
-  {/* 🎭 ১. ফ্লেক্সিবল কুইক রিঅ্যাকশন বার (স্মুথ হভার ও অটো-পজিশন সহ) */}
-  {!msg.isUnsent && (
-    <div className={`absolute z-50 flex items-center gap-1.5 p-1.5 bg-slate-900 border border-slate-700 rounded-full shadow-2xl 
-      opacity-0 scale-95 pointer-events-none 
-      group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto 
-      transition-all duration-200 ease-out
-      /* 🪄 এখানে ম্যাজিক: মেসেজ স্ক্রিনের উপরে থাকলে নিচে নামবে, নিচে থাকলে উপরে উঠবে */
-      ${dropdownPosition === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'} 
-      ${isMyMsg ? 'right-0' : 'left-0'}`}
-      /* 🛠️ মাউস যেন রিঅ্যাকশন বারে থাকা অবস্থায় মেনু ক্লোজ না হয় তার জন্য সেফটি গার্ড */
-      style={{ transformOrigin: dropdownPosition === 'top' ? 'bottom' : 'top' }}
-    >
-      {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
-        <button 
-          key={emoji} 
-          type="button"
-          onClick={(e) => { 
-            e.stopPropagation(); 
-            handleMessageReaction(currentMsgId, emoji); 
-          }} 
-          className="hover:scale-130 active:scale-95 transition-transform text-sm px-1 cursor-pointer"
-        >
-          {emoji}
-        </button>
-      ))}
-    </div>
-  )}
+                              <div className="flex flex-col relative group pb-1">
+                                {!msg.isUnsent && (
+                                  <div className={`absolute z-50 flex items-center gap-1.5 p-1.5 bg-slate-900/90 backdrop-blur-md border border-slate-800/80 rounded-full shadow-2xl 
+                                    opacity-0 scale-95 pointer-events-none 
+                                    group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto 
+                                    transition-all duration-200 ease-out
+                                    ${dropdownPosition === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} 
+                                    ${isMyMsg ? 'right-0' : 'left-0'}`}
+                                    style={{ transformOrigin: dropdownPosition === 'top' ? 'bottom' : 'top' }}
+                                  >
+                                    {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                                      <button 
+                                        key={emoji} 
+                                        type="button"
+                                        onClick={(e) => { 
+                                          e.stopPropagation(); 
+                                          handleMessageReaction(currentMsgId, emoji); 
+                                        }} 
+                                        className="hover:scale-125 active:scale-95 transition-transform text-sm px-1 cursor-pointer"
+                                      >
+                                        {emoji}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
 
-  {/* 🎯 ২. মেসেজ বাবল */}
-  <div 
-    onClick={(e) => !msg.isUnsent && toggleActionMenu(e, currentMsgId)} 
-    className={`p-3 rounded-2xl text-sm ${isMyMsg ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-100 rounded-tl-none'} shadow-md cursor-pointer relative`}
-  >
-    {renderMessageContent(msg)}
-    
-    {/* 🔴 অলরেডি দেওয়া রিঅ্যাকশন বাবল */}
-    {msg.reaction && (
-      <div className={`absolute -bottom-2.5 ${isMyMsg ? 'left-3' : 'right-3'} bg-slate-700 border border-slate-600 rounded-full px-1.5 py-0.5 text-[11px] shadow-md select-none z-10`}>
-        {msg.reaction}
-      </div>
-    )}
-  </div>
-  
-  {/* 🕒 ৩. টাইম ও টিক ইন্ডিকেটর */}
-  {!msg.isUnsent && (
-    <div className={`flex items-center mt-1 text-[9px] text-slate-500 font-medium ${isMyMsg ? 'justify-end' : 'justify-start'} ${msg.reaction ? 'pt-1.5' : ''}`}>
-      <span>{msg.time}</span>
-      {isMyMsg && renderTickIndicator(msg)}
-    </div>
-  )}
-</div>
+                                <div 
+                                  onClick={(e) => !msg.isUnsent && toggleActionMenu(e, currentMsgId)} 
+                                  className={`p-3.5 px-4 rounded-2xl text-sm shadow-md cursor-pointer relative transition-all duration-200 ${
+                                    isMyMsg 
+                                      ? 'message-bubble-outgoing rounded-tr-none text-white' 
+                                      : 'message-bubble-incoming rounded-tl-none text-slate-100'
+                                  }`}
+                                >
+                                  {renderMessageContent(msg)}
+                                  
+                                  {msg.reaction && (
+                                    <div className={`absolute -bottom-2.5 ${isMyMsg ? 'left-3' : 'right-3'} bg-slate-850 border border-slate-700 rounded-full px-2 py-0.5 text-[10px] shadow-md select-none z-10 animate-slide-up-fade`}>
+                                      {msg.reaction}
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                {!msg.isUnsent && (
+                                  <div className={`flex items-center mt-1 text-[9px] text-slate-500 font-medium ${isMyMsg ? 'justify-end' : 'justify-start'} ${msg.reaction ? 'pt-2' : ''}`}>
+                                    <span>{msg.time}</span>
+                                    {isMyMsg && renderTickIndicator(msg)}
+                                  </div>
+                                )}
+                              </div>
                             )}
                             <AnimatePresence>
                               {isMenuOpen && !isEditingThis && (
-                                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className={`absolute bg-slate-900 border border-slate-700 rounded-xl p-1 z-50 flex flex-col min-w-[130px] ${isMyMsg ? 'right-0' : 'left-0'} ${dropdownPosition === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'}`}>
-                                  {isMyMsg && (!msg.fileType || msg.fileType === 'text') && <button onClick={() => { setEditingMsgId(currentMsgId); setEditText(msg.text); setActiveMenuMsgId(null); }} className="flex items-center gap-2 text-xs p-2 text-slate-300 hover:bg-slate-700 rounded-lg"><Edit3 size={12} /> Edit</button>}
-                                  {isMyMsg && <button onClick={() => handleUnsendForEveryone(currentMsgId)} className="flex items-center gap-2 text-xs p-2 text-red-400 hover:bg-red-500/10 rounded-lg"><Ban size={12} /> Unsend</button>}
-                                  <button onClick={() => handleRemoveForMe(currentMsgId)} className="flex items-center gap-2 text-xs p-2 text-slate-400 hover:bg-slate-700 rounded-lg"><Trash2 size={12} /> Remove</button>
+                                <motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -5 }} className={`absolute bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-xl p-1 z-50 flex flex-col min-w-[130px] shadow-2xl ${isMyMsg ? 'right-0' : 'left-0'} ${dropdownPosition === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'}`}>
+                                  {isMyMsg && (!msg.fileType || msg.fileType === 'text') && <button onClick={() => { setEditingMsgId(currentMsgId); setEditText(msg.text); setActiveMenuMsgId(null); }} className="flex items-center gap-2 text-xs p-2 text-slate-300 hover:bg-slate-800 rounded-lg transition duration-150 cursor-pointer"><Edit3 size={12} /> Edit</button>}
+                                  {isMyMsg && <button onClick={() => handleUnsendForEveryone(currentMsgId)} className="flex items-center gap-2 text-xs p-2 text-rose-400 hover:bg-rose-500/10 rounded-lg transition duration-150 cursor-pointer"><Ban size={12} /> Unsend</button>}
+                                  <button onClick={() => handleRemoveForMe(currentMsgId)} className="flex items-center gap-2 text-xs p-2 text-slate-400 hover:bg-slate-800 rounded-lg transition duration-150 cursor-pointer"><Trash2 size={12} /> Remove</button>
                                 </motion.div>
                               )}
                             </AnimatePresence>
                           </div>
-                          {isMyMsg && !msg.isUnsent && <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300"><MoreVertical size={14} /></button>}
-                        </div>
+                          {isMyMsg && !msg.isUnsent && (
+                            <button onClick={(e) => toggleActionMenu(e, currentMsgId)} className="p-1 text-slate-500 hover:text-slate-300 transition duration-150 cursor-pointer"><MoreVertical size={14} /></button>
+                          )}
+                        </motion.div>
                       );
                     })}
                     <div ref={messagesEndRef} />
                   </div>
 
-                  <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-900 shrink-0 relative z-30" ref={popupRef}>
+                  <div className="p-3 sm:p-4 border-t border-slate-900 bg-slate-950/80 backdrop-blur-md shrink-0 relative z-30" ref={popupRef}>
                     {amIBlockingHim(selectedUser.name) ? (
-                      <div className="bg-red-950/40 border border-red-900/50 p-3 rounded-xl text-center text-xs text-red-400 font-medium">You have blocked this profile. Unblock to chat.</div>
+                      <div className="bg-rose-950/20 border border-rose-900/40 p-3.5 rounded-2xl text-center text-xs text-rose-400 font-medium">You have blocked this profile. Unblock to chat.</div>
                     ) : isHeBlockingMe(selectedUser.name) ? (
-                      <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center text-xs text-slate-500 font-medium">Sending restricted. You can no longer reply to this conversation.</div>
+                      <div className="bg-slate-900/60 border border-slate-800 p-3.5 rounded-2xl text-center text-xs text-slate-500 font-medium">Sending restricted. You can no longer reply to this conversation.</div>
                     ) : (
                       <>
                         <AnimatePresence>
                           {showPicker && (
-                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="absolute bottom-20 left-2 right-2 sm:left-4 z-50 rounded-2xl bg-slate-800 border border-slate-700 max-w-[310px] flex flex-col overflow-hidden shadow-2xl">
-                              <div className="flex bg-slate-900 p-1.5 border-b border-slate-700">
-                                <button type="button" onClick={() => setActiveTab('emoji')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl ${activeTab === 'emoji' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Emojis</button>
-                                <button type="button" onClick={() => setActiveTab('gif')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl ${activeTab === 'gif' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>GIFs</button>
+                            <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }} className="absolute bottom-20 left-2 right-2 sm:left-4 z-50 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-slate-800 max-w-[310px] flex flex-col overflow-hidden shadow-2xl animate-slide-up-fade">
+                              <div className="flex bg-slate-950 p-2 border-b border-slate-800/80">
+                                <button type="button" onClick={() => setActiveTab('emoji')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition duration-150 cursor-pointer ${activeTab === 'emoji' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>Emojis</button>
+                                <button type="button" onClick={() => setActiveTab('gif')} className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition duration-150 cursor-pointer ${activeTab === 'gif' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>GIFs</button>
                               </div>
-                              <div className="p-2 bg-slate-800">
+                              <div className="p-2 bg-slate-900">
                                 {activeTab === 'emoji' && <EmojiPicker onEmojiClick={onEmojiClick} theme={Theme.DARK} width="100%" height={230} skinTonesDisabled searchDisabled />}
                                 {activeTab === 'gif' && (
                                   <div>
-                                    <div className="flex items-center gap-2 bg-slate-900 rounded-xl p-2 mb-2"><Search size={14} /><input type="text" placeholder="Search GIFs..." value={gifSearch} onChange={(e) => setGifSearch(e.target.value)} className="bg-transparent text-xs outline-none w-full" /></div>
-                                    <div className="grid grid-cols-2 gap-2 max-h-[180px] overflow-y-auto">{gifs.map((url, i) => <img key={i} src={url} alt="gif" onClick={() => handleGifSelect(url)} className="w-full h-16 object-cover rounded-lg cursor-pointer" />)}</div>
+                                    <div className="flex items-center gap-2 bg-slate-950 border border-slate-850 rounded-xl p-2 mb-2"><Search size={14} className="text-slate-400" /><input type="text" placeholder="Search GIFs..." value={gifSearch} onChange={(e) => setGifSearch(e.target.value)} className="bg-transparent text-xs outline-none w-full text-white" /></div>
+                                    <div className="grid grid-cols-2 gap-2 max-h-[180px] overflow-y-auto">{gifs.map((url, i) => <img key={i} src={url} alt="gif" onClick={() => handleGifSelect(url)} className="w-full h-16 object-cover rounded-lg cursor-pointer hover:opacity-80 transition" />)}</div>
                                   </div>
                                 )}
                               </div>
@@ -869,21 +941,23 @@ if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center 
                         </AnimatePresence>
                         <input type="file" ref={fileInputRef} onChange={handleFileShare} accept="image/*,video/*" className="hidden" />
                         <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
-                          <button type="button" onClick={() => setShowPicker(!showPicker)} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400"><Smile size={18}/></button>
-                          <button type="button" onClick={() => fileInputRef.current.click()} className="p-3 bg-slate-800 border border-slate-700 rounded-xl text-slate-400"><Paperclip size={18}/></button>
-                          <input type="text" value={message} onChange={handleInputChange} placeholder="Type a message..." className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm outline-none text-white focus:border-blue-500" />
-                          <button type="submit" className="p-3 bg-blue-600 text-white rounded-xl"><Send size={16}/></button>
+                          <button type="button" onClick={() => setShowPicker(!showPicker)} className="p-3.5 bg-slate-900 border border-slate-800/80 rounded-2xl text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition duration-150 cursor-pointer"><Smile size={18}/></button>
+                          <button type="button" onClick={() => fileInputRef.current.click()} className="p-3.5 bg-slate-900 border border-slate-800/80 rounded-2xl text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition duration-150 cursor-pointer"><Paperclip size={18}/></button>
+                          <input type="text" value={message} onChange={handleInputChange} placeholder="Type a message..." className="flex-1 bg-slate-900/60 border border-slate-800/80 rounded-2xl p-3.5 px-4 text-sm outline-none text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition duration-150" />
+                          <button type="submit" className="p-3.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-2xl shadow-lg transition duration-150 active:scale-95 cursor-pointer"><Send size={16}/></button>
                         </form>
                       </>
                     )}
                   </div>
                 </>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-slate-950">
-                  <div className="max-w-md p-8 bg-slate-900/40 border border-slate-800 rounded-3xl flex flex-col items-center">
-                    <MessageSquare size={32} className="text-blue-400 mb-4" />
-                    <h2 className="text-xl font-bold mb-2">Hello, {user.name}! 👋</h2>
-                    <p className="text-xs text-slate-400">Select an active profile from the directory to start messaging.</p>
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-gradient-to-b from-slate-950 to-slate-900/50 relative">
+                  <div className="max-w-md p-8 bg-slate-900/20 border border-slate-800/50 rounded-3xl flex flex-col items-center backdrop-blur-md shadow-2xl relative z-10">
+                    <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-6 shadow-lg shadow-indigo-950/50">
+                      <MessageSquare size={32} />
+                    </div>
+                    <h2 className="text-xl font-bold mb-2 bg-gradient-to-r from-slate-100 to-slate-300 bg-clip-text text-transparent">Hello, {user.name}! 👋</h2>
+                    <p className="text-xs text-slate-400 max-w-[280px] leading-relaxed">Select an active profile from the sidebar directory to start exchanging messages securely.</p>
                   </div>
                 </div>
               )}
@@ -893,26 +967,30 @@ if (isHydrating) return <div className="h-screen bg-slate-950 flex items-center 
 
         <AnimatePresence>
           {showTermsPopup && (
-            <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[999999] flex items-center justify-center p-4">
-              <div className="bg-slate-800 border border-slate-700 w-full max-w-md rounded-2xl p-6">
-                <h3 className="font-bold text-sm mb-2">Terms & Conditions</h3>
-                <p className="text-xs text-slate-400 mb-4">By interacting with this anonymous channel, you agree to follow absolute end-to-end community messaging compliance policies.</p>
-                <button type="button" onClick={() => { setAcceptedTermsLogin(true); setShowTermsPopup(false); }} className="w-full bg-blue-600 py-2.5 rounded-xl text-xs font-semibold">Accept & Close</button>
-              </div>
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[999999] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-slate-900/90 border border-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl relative z-10">
+                <h3 className="font-bold text-base mb-3 text-slate-100">Terms & Conditions</h3>
+                <p className="text-xs text-slate-400 mb-6 leading-relaxed">By interacting with this anonymous channel, you agree to follow absolute end-to-end community messaging compliance policies. Abuse, harassment, and toxic messaging will lead to a permanent ban.</p>
+                <button type="button" onClick={() => { setAcceptedTermsLogin(true); setShowTermsPopup(false); }} className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 py-3 rounded-2xl text-xs font-semibold text-white shadow-lg active:scale-98 transition duration-150 cursor-pointer">Accept & Close</button>
+              </motion.div>
             </div>
           )}
         </AnimatePresence>
 
         <AnimatePresence>
           {profileUser && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
-              <div className="bg-slate-800 border border-slate-700 w-full max-w-sm rounded-2xl overflow-hidden text-center pb-8 relative">
-                <button onClick={() => setProfileUser(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X size={18}/></button>
-                <div className="h-20 bg-gradient-to-r from-blue-600 to-indigo-700"></div>
-                <div className="flex justify-center -mt-10 mb-3">{renderAvatar(profileUser, "w-20 h-20")}</div>
-                <h2 className="text-lg font-bold">{profileUser.name}</h2>
-                <p className="text-xs text-blue-400">{profileUser.gender} • {profileUser.age} Yrs • {profileUser.country}</p>
-              </div>
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[99999] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0, scale: 0.95, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 15 }} className="bg-slate-900/95 border border-slate-800/80 w-full max-w-sm rounded-3xl overflow-hidden text-center pb-8 shadow-2xl relative z-10">
+                <button onClick={() => setProfileUser(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white p-1.5 hover:bg-slate-800 rounded-lg transition duration-150 cursor-pointer"><X size={18}/></button>
+                <div className="h-24 bg-gradient-to-r from-indigo-600 to-violet-600"></div>
+                <div className="flex justify-center -mt-10 mb-4">
+                  <div className="ring-4 ring-slate-900 rounded-full shadow-2xl">
+                    {renderAvatar(profileUser, "w-20 h-20")}
+                  </div>
+                </div>
+                <h2 className="text-lg font-bold text-white mb-1">{profileUser.name}</h2>
+                <p className="text-xs font-medium text-indigo-400 px-3 py-1 bg-indigo-500/10 rounded-full inline-block border border-indigo-500/20">{profileUser.gender} • {profileUser.age} Yrs • {profileUser.country}</p>
+              </motion.div>
             </div>
           )}
         </AnimatePresence>

@@ -1,1 +1,147 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Premium Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(2, 6, 23, 0.3);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.15);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.35);
+}
+
+/* Base Body Styles */
+body {
+  font-family: var(--font-sans);
+  background-color: #020617; /* slate-950 */
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #f8fafc;
+}
+
+/* Glassmorphism Styles */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(20px) saturate(120%);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-light {
+  background: rgba(30, 41, 59, 0.35);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-input {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #ffffff;
+  outline: none;
+}
+
+.glass-input:focus {
+  border-color: rgba(99, 102, 241, 0.45); /* indigo-500 */
+  box-shadow: 0 0 15px rgba(99, 102, 241, 0.1);
+  background: rgba(15, 23, 42, 0.65);
+}
+
+/* Animated Gradient Background Orbs */
+.bg-glow-orb-1 {
+  position: absolute;
+  width: 450px;
+  height: 450px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.18) 0%, rgba(139, 92, 246, 0.04) 70%, transparent 100%);
+  filter: blur(60px);
+  pointer-events: none;
+  z-index: 0;
+  animation: floatOrb1 25s infinite alternate ease-in-out;
+}
+
+.bg-glow-orb-2 {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(236, 72, 153, 0.12) 0%, rgba(99, 102, 241, 0.03) 70%, transparent 100%);
+  filter: blur(60px);
+  pointer-events: none;
+  z-index: 0;
+  animation: floatOrb2 22s infinite alternate ease-in-out;
+}
+
+@keyframes floatOrb1 {
+  0% {
+    transform: translate(-10%, -10%) scale(1);
+  }
+  100% {
+    transform: translate(30%, 20%) scale(1.15);
+  }
+}
+
+@keyframes floatOrb2 {
+  0% {
+    transform: translate(40%, 30%) scale(1.1);
+  }
+  100% {
+    transform: translate(-10%, -20%) scale(0.9);
+  }
+}
+
+/* Active status indicator green glow */
+.status-indicator-glow {
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.8);
+}
+
+/* Custom Message Bubble Styling */
+.message-bubble-outgoing {
+  background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.message-bubble-incoming {
+  background: rgba(30, 41, 59, 0.55);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Hover effects with micro-transitions */
+.interactive-hover-item {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.interactive-hover-item:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+  transform: translateY(-1px);
+}
+
+/* Floating reaction bubble animation */
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-slide-up-fade {
+  animation: slideUpFade 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
